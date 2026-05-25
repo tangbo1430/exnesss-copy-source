@@ -509,8 +509,26 @@ function translateDynamic(text: string, language: Language): string | null {
   return null;
 }
 
+export const languageStorageKey = "exness-pa-language";
+
 export function coerceLanguage(language: string): Language {
   return languageOptions.includes(language as Language) ? (language as Language) : "English";
+}
+
+export function readStoredLanguage(): Language {
+  try {
+    return coerceLanguage(localStorage.getItem(languageStorageKey) ?? "");
+  } catch {
+    return "English";
+  }
+}
+
+export function writeStoredLanguage(language: string) {
+  try {
+    localStorage.setItem(languageStorageKey, coerceLanguage(language));
+  } catch {
+    // Ignore quota / private mode errors.
+  }
 }
 
 export function translateText(value: string, languageValue: string): string {

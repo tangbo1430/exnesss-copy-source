@@ -1,5 +1,6 @@
-import { createContext, ReactNode, useContext, useMemo, useReducer } from "react";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useReducer } from "react";
 import { initialState } from "../data/mockData";
+import { readStoredLanguage, writeStoredLanguage } from "../i18n";
 import type {
   Account,
   PAState,
@@ -272,8 +273,23 @@ function reducer(state: PAState, action: Action): PAState {
   }
 }
 
+function createInitialState(): PAState {
+  return {
+    ...initialState,
+    settings: {
+      ...initialState.settings,
+      language: readStoredLanguage(),
+    },
+  };
+}
+
 export function PAProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, undefined, createInitialState);
+
+  useEffect(() => {
+    writeStoredLanguage(state.settings.language);
+  }, [state.settings.language]);
+
   const value = useMemo<PAContextValue>(() => {
     const totalBalance = state.accounts
       .filter((account) => account.status === "Active" && account.kind === "Real")
