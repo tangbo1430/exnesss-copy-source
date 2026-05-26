@@ -46,8 +46,8 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { ThemeProvider } from "@mui/material/styles";
 import {
+  ArrowDownCircle,
   Activity,
   AppWindow,
   Bell,
@@ -91,21 +91,54 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { PAProvider, usePA } from "./state/paStore";
-import { exnessTheme } from "./theme/exnessTheme";
+import { ThemeModeProvider } from "./theme/ThemeModeProvider";
+import { ThemeMenuButton } from "./components/ThemeMenuButton";
+import { AccountSortSelect, sortAccounts, type AccountSort } from "./components/AccountSortSelect";
+import { DateRangePicker, filterByDateRange } from "./components/DateRangePicker";
+import { OrdersHistoryTable } from "./components/OrdersHistoryTable";
+import { TransactionHistoryFiltersBar } from "./components/TransactionHistoryFiltersBar";
+import {
+  defaultTransactionHistoryFilters,
+  filterTransactions,
+  type TransactionHistoryFilters,
+} from "./utils/transactionFilters";
+import { AnalystViewsRoute } from "./components/AnalystViewsPage";
+import { MarketNewsPage } from "./components/MarketNewsPage";
+import { SavingsPage } from "./components/SavingsPage";
+import { TradingConditionsPage } from "./components/TradingConditionsPage";
+import { VpsPage } from "./components/VpsPage";
+import { PerformancePage } from "./components/PerformancePage";
+import { LegalFooter } from "./components/LegalFooter";
+import type { DateRangeValue } from "./utils/dateRange";
 import { languageOptions, localizeTree } from "./i18n";
 import { clearTokens, getAccessToken, compressImageFile } from "./api/client";
-import { canFundAccount, isDemoFundFlow } from "./config/simulation";
+import { canFundAccount, isDemoFundFlow, pickDefaultFundAccountId } from "./config/simulation";
 import * as authApi from "./api/auth";
 import * as fundApi from "./api/fund";
 import * as kycApi from "./api/kyc";
-import { kycPaymentBlockedMessage, kycIdentityLocked, kycStatusLabel } from "./utils/kycSync";
-import { validateFundAmount, clampWithdrawAmount } from "./utils/fundValidation";
+import {
+  kycPaymentBlockedMessage,
+  kycIdentityLocked,
+  kycStatusLabel,
+  verificationStatusLabel,
+} from "./utils/kycSync";
+import {
+  validateFundAmount,
+  normalizeAmountInput,
+  parseFundAmount,
+  defaultAmountText,
+  roundFundAmount,
+  formatFundAmountText,
+  FUND_AMOUNT_DEFAULT_DEPOSIT,
+} from "./utils/fundValidation";
 import type {
   Account,
   AccountKind,
   AccountPlatform,
   GroupKey,
   Insight,
+  Mt4Terminal,
+  Mt5Terminal,
   OrderStatus,
   Route,
   Stage,
@@ -120,9 +153,10 @@ function promptKycForPayments(
   kycStatus: number,
   openDialog: DialogOpener,
   toast: Toast,
+  language: string,
   navigate?: (route: Route) => void,
 ) {
-  toast(kycPaymentBlockedMessage(kycStatus));
+  toast(kycPaymentBlockedMessage(kycStatus, language));
   if (navigate) {
     navigate("/pa/settings/profile");
   }
@@ -131,11 +165,13 @@ function promptKycForPayments(
 
 function KycPaymentBlock({
   kycStatus,
+  language,
   openDialog,
   toast,
   navigate,
 }: {
   kycStatus: number;
+  language: string;
   openDialog: DialogOpener;
   toast: Toast;
   navigate?: (route: Route) => void;
@@ -145,12 +181,12 @@ function KycPaymentBlock({
     <Alert
       severity="warning"
       action={
-        <Button color="inherit" size="small" onClick={() => promptKycForPayments(kycStatus, openDialog, toast, navigate)}>
+        <Button color="inherit" size="small" onClick={() => promptKycForPayments(kycStatus, openDialog, toast, language, navigate)}>
           {actionLabel}
         </Button>
       }
     >
-      {kycPaymentBlockedMessage(kycStatus)}
+      {kycPaymentBlockedMessage(kycStatus, language)}
     </Alert>
   );
 }
@@ -185,6 +221,7 @@ type DialogState =
   | { name: "password"; accountId?: string }
   | { name: "terminate" }
   | { name: "wallet" }
+  | { name: "setBalance"; accountId: string }
   | null;
 
 type DialogOpener = (dialog: DialogState) => void;
@@ -347,19 +384,19 @@ export default function App() {
 
   if (booting) {
     return (
-      <ThemeProvider theme={exnessTheme}>
+      <ThemeModeProvider>
         <CssBaseline />
         <div className="login-page">
           <main className="login-main">
             <Typography variant="h3">Loading...</Typography>
           </main>
         </div>
-      </ThemeProvider>
+      </ThemeModeProvider>
     );
   }
 
   return (
-    <ThemeProvider theme={exnessTheme}>
+    <ThemeModeProvider>
       <CssBaseline />
       <PAProvider>
         <I18nSync />
@@ -368,14 +405,14 @@ export default function App() {
         ) : (
           <AppShell setStage={setStage} openDialog={setDialog} toast={toast} />
         )}
-        <DialogHost dialog={dialog} close={() => setDialog(null)} openDialog={setDialog} toast={toast} />
+        <DialogHost dialog={dialog} close={() => setDialog(null)} openDialog={setDialog} toast={toast} setStage={setStage} />
         <Snackbar open={Boolean(snackbar)} autoHideDuration={4200} onClose={() => setSnackbar("")} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
           <Alert severity="info" variant="filled" onClose={() => setSnackbar("")}>
             {snackbar}
           </Alert>
         </Snackbar>
       </PAProvider>
-    </ThemeProvider>
+    </ThemeModeProvider>
   );
 }
 
@@ -520,9 +557,12 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
     <div className="login-page">
       <header className="login-header">
         <ExnessLogo />
-        <IconButton aria-label="Language" onClick={(event) => setLanguageAnchor(event.currentTarget)}>
-          <Globe2 size={18} />
-        </IconButton>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+          <ThemeMenuButton size={18} />
+          <IconButton aria-label="Language" onClick={(event) => setLanguageAnchor(event.currentTarget)}>
+            <Globe2 size={18} />
+          </IconButton>
+        </Stack>
         <Menu anchorEl={languageAnchor} open={Boolean(languageAnchor)} onClose={() => setLanguageAnchor(null)}>
           {languageOptions.map((language) => (
             <MenuItem
@@ -634,20 +674,7 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
           </Button>
         </form>
       </main>
-      <footer className="login-footer">
-        <div>
-          <p>Exness对于部分司法管辖区域的居民不提供服务，包括美国、伊朗、朝鲜、欧盟、英国和其他国家/地区。本网站内容不可解读为要约邀请。</p>
-          <p>差价合约 (CFD) 交易和普通杠杆产品存在重大亏损风险，您可能损失所有投入资本。</p>
-          <p>Exness (SC) Ltd是一家在塞舌尔注册的证券交易商，由金融服务管理局授权，许可证号为SD025。</p>
-          <p>风险提示：我们的服务涉及复杂衍生产品。由于杠杆作用，这些产品具有快速亏损的高风险。</p>
-        </div>
-        <nav>
-          {["隐私协议", "风险披露", "防止洗钱", "安全说明", "法律文件", "申诉处理政策"].map((item) => (
-            <a key={item}>{item}</a>
-          ))}
-          <span>© 2008-2026. Exness</span>
-        </nav>
-      </footer>
+      <LegalFooter variant="login" />
       <ChatFab />
     </div>
   );
@@ -741,9 +768,21 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
             {route === "/pa/trading/orderSummary" && <PerformancePage />}
             {route === "/pa/trading/ordersHistory" && <OrdersPage toast={toast} />}
             {route.startsWith("/pa/payments-and-wallet") && <PaymentsPage route={route} navigate={navigate} openDialog={openDialog} toast={toast} />}
-            {route === "/pa/analytics/analystViews" && <InsightPage kind="analyst" />}
-            {route === "/pa/analytics/fxnews" && <InsightPage kind="news" />}
-            {route.startsWith("/pa/exness-benefits") && <BenefitsPage route={route} openDialog={openDialog} navigate={navigate} />}
+            {route === "/pa/analytics/analystViews" && <AnalystViewsRoute openDialog={openDialog} />}
+            {route === "/pa/analytics/fxnews" && (
+              <Page title="Market News">
+                <MarketNewsPage />
+              </Page>
+            )}
+            {route === "/pa/exness-benefits/swapfree" && <TradingConditionsPage />}
+            {route === "/pa/exness-benefits/savings" && <SavingsPage navigate={navigate} />}
+            {route === "/pa/exness-benefits/vps" && <VpsPage />}
+            {route.startsWith("/pa/exness-benefits") &&
+              route !== "/pa/exness-benefits/swapfree" &&
+              route !== "/pa/exness-benefits/savings" &&
+              route !== "/pa/exness-benefits/vps" && (
+                <BenefitsPage route={route} openDialog={openDialog} navigate={navigate} />
+              )}
             {route === "/pa/socialtrading" && <CopyTradingPage openDialog={openDialog} toast={toast} />}
             {route === "/pa/support_hub/help_center" && <SupportHubPage openDialog={openDialog} toast={toast} />}
             {route.startsWith("/pa/settings") && <SettingsPage route={route} openDialog={openDialog} toast={toast} />}
@@ -781,6 +820,7 @@ function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: S
         <Button className="balance-trigger" startIcon={<Wallet size={18} />} onClick={(event) => open(event, "balance")} color="inherit">
           <strong>{totalBalance.toFixed(2)}</strong> USD
         </Button>
+        <ThemeMenuButton />
         <IconButton aria-label="Language" onClick={(event) => open(event, "language")}>
           <Globe2 size={20} />
         </IconButton>
@@ -930,7 +970,7 @@ function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: S
           <UserCircle size={34} />
           <div>
             <strong>{state.userProfile?.maskedEmail ?? "Personal Area"}</strong>
-            <span>{kycStatusLabel(state.userProfile?.kycStatus ?? 0)}</span>
+            <span>{kycStatusLabel(state.userProfile?.kycStatus ?? 0, state.settings.language)}</span>
           </div>
         </Box>
         <Divider />
@@ -1158,22 +1198,20 @@ function KycBanner({ navigate, openDialog }: { navigate: (route: Route) => void;
 
 function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route) => void; openDialog: DialogOpener; toast: Toast }) {
   const { state } = usePA();
+  const language = state.settings.language;
   const kycStatus = state.userProfile?.kycStatus ?? 0;
   const [kind, setKind] = useState<AccountKind>("Real");
-  const [sort, setSort] = useState("newest");
+  const [sort, setSort] = useState<AccountSort>("newest");
   const [view, setView] = useState<"list" | "grid">("list");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [menuAccount, setMenuAccount] = useState<Account | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const accounts = useMemo(() => {
-    return state.accounts
-      .filter((account) => account.status === "Active" && account.kind === kind)
-      .sort((a, b) => {
-        if (sort === "balance") return b.balance - a.balance;
-        if (sort === "name") return a.nickname.localeCompare(b.nickname);
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
+    return sortAccounts(
+      state.accounts.filter((account) => account.status === "Active" && account.kind === kind),
+      sort,
+    );
   }, [state.accounts, kind, sort]);
 
   return (
@@ -1183,14 +1221,7 @@ function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route
           <ToggleButton value="Real">Real</ToggleButton>
           <ToggleButton value="Demo">Demo</ToggleButton>
         </ToggleButtonGroup>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Sort by</InputLabel>
-          <Select value={sort} label="Sort by" onChange={(event) => setSort(event.target.value)}>
-            <MenuItem value="newest">Newest</MenuItem>
-            <MenuItem value="balance">Balance</MenuItem>
-            <MenuItem value="name">Name</MenuItem>
-          </Select>
-        </FormControl>
+        <AccountSortSelect value={sort} onChange={setSort} />
         <ToggleButtonGroup exclusive value={view} onChange={(_, value: "list" | "grid" | null) => value && setView(value)} className="view-toggle">
           <ToggleButton value="list" aria-label="List view">
             <List size={16} />
@@ -1219,15 +1250,28 @@ function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route
                       # {account.login} <Copy size={14} />
                     </button>
                   </div>
-                  <IconButton
-                    aria-label="Account actions"
-                    onClick={(event) => {
-                      setMenuAccount(account);
-                      setMenuAnchor(event.currentTarget);
-                    }}
-                  >
-                    <MoreVertical size={18} />
-                  </IconButton>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexShrink: 0 }}>
+                    {account.kind === "Demo" && (
+                      <Button
+                        variant="outlined"
+                        color="inherit"
+                        className="set-balance-button"
+                        startIcon={<ArrowDownCircle size={16} />}
+                        onClick={() => openDialog({ name: "setBalance", accountId: account.id })}
+                      >
+                        Set balance
+                      </Button>
+                    )}
+                    <IconButton
+                      aria-label="Account actions"
+                      onClick={(event) => {
+                        setMenuAccount(account);
+                        setMenuAnchor(event.currentTarget);
+                      }}
+                    >
+                      <MoreVertical size={18} />
+                    </IconButton>
+                  </Stack>
                 </div>
                 <div className="account-balance">
                   <span>{account.nickname}</span>
@@ -1242,7 +1286,7 @@ function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route
                     disabled={!canFundAccount(account.kind, kycStatus)}
                     onClick={() => {
                       if (!canFundAccount(account.kind, kycStatus)) {
-                        promptKycForPayments(kycStatus, openDialog, toast, navigate);
+                        promptKycForPayments(kycStatus, openDialog, toast, language, navigate);
                         return;
                       }
                       openDialog({ name: "payment", flow: "deposit", accountId: account.id });
@@ -1255,7 +1299,7 @@ function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route
                     disabled={!canFundAccount(account.kind, kycStatus)}
                     onClick={() => {
                       if (!canFundAccount(account.kind, kycStatus)) {
-                        promptKycForPayments(kycStatus, openDialog, toast, navigate);
+                        promptKycForPayments(kycStatus, openDialog, toast, language, navigate);
                         return;
                       }
                       openDialog({ name: "payment", flow: "withdrawal", accountId: account.id });
@@ -1297,68 +1341,15 @@ function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route
   );
 }
 
-function PerformancePage() {
-  const { state } = usePA();
-  const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? "");
-  const [period, setPeriod] = useState("30d");
-  const [metric, setMetric] = useState("profit");
-  const orders = state.orders.filter((order) => order.accountId === accountId || accountId === "all");
-  const pnl = orders.reduce((total, order) => total + order.pnl, 0);
-  const volume = orders.reduce((total, order) => total + order.volume, 0);
-
-  return (
-    <Page title="Summary">
-      <div className="toolbar">
-        <FormControl size="small" sx={{ minWidth: 260 }}>
-          <InputLabel>Account</InputLabel>
-          <Select value={accountId || "all"} label="Account" onChange={(event) => setAccountId(event.target.value)}>
-            <MenuItem value="all">All accounts</MenuItem>
-            {state.accounts.map((account) => (
-              <MenuItem key={account.id} value={account.id}>{getAccountName(state.accounts, account.id)}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Period</InputLabel>
-          <Select value={period} label="Period" onChange={(event) => setPeriod(event.target.value)}>
-            <MenuItem value="7d">Last 7 days</MenuItem>
-            <MenuItem value="30d">Last 30 days</MenuItem>
-            <MenuItem value="all">All time</MenuItem>
-          </Select>
-        </FormControl>
-        <ToggleButtonGroup exclusive value={metric} onChange={(_, value: string | null) => value && setMetric(value)}>
-          <ToggleButton value="profit">Profit</ToggleButton>
-          <ToggleButton value="equity">Equity</ToggleButton>
-          <ToggleButton value="orders">Orders</ToggleButton>
-        </ToggleButtonGroup>
-      </div>
-      <div className="metric-grid">
-        <Metric title="Net profit" value={formatMoney(pnl)} icon={TrendingUp} positive={pnl >= 0} />
-        <Metric title="Orders" value={String(orders.length)} icon={ClipboardList} />
-        <Metric title="Volume" value={volume.toFixed(2)} icon={Activity} />
-        <Metric title="Period" value={period === "30d" ? "30 days" : period === "7d" ? "7 days" : "All time"} icon={Clock3} />
-      </div>
-      <Paper className="chart-panel">
-        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
-          <Typography variant="h3">{metric === "profit" ? "Profit and loss" : metric === "equity" ? "Equity curve" : "Order activity"}</Typography>
-          <Chip label="Local sample data" />
-        </Stack>
-        <div className="bar-chart">
-          {[42, 58, 38, 70, 64, 82, 55, 92, 76, 88].map((height, index) => (
-            <span key={index} style={{ height: `${height}%` }} />
-          ))}
-        </div>
-      </Paper>
-    </Page>
-  );
-}
-
 function OrdersPage({ toast }: { toast: Toast }) {
   const { state } = usePA();
   const [status, setStatus] = useState<OrderStatus | "All">("Closed");
-  const [period, setPeriod] = useState("all");
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ start: null, end: null });
   const [accountId, setAccountId] = useState("all");
-  const rows = state.orders.filter((order) => (status === "All" || order.status === status) && (accountId === "all" || order.accountId === accountId));
+  const rows = filterByDateRange(
+    state.orders.filter((order) => (status === "All" || order.status === status) && (accountId === "all" || order.accountId === accountId)),
+    dateRange,
+  );
 
   return (
     <Page title="History of orders" actions={<Button variant="outlined" startIcon={<Download size={16} />} onClick={() => { downloadCsv("orders.csv", rows); toast("CSV download generated."); }}>Download CSV</Button>}>
@@ -1377,40 +1368,46 @@ function OrdersPage({ toast }: { toast: Toast }) {
             ))}
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 140 }}>
-          <InputLabel>Period</InputLabel>
-          <Select value={period} label="Period" onChange={(event) => setPeriod(event.target.value)}>
-            <MenuItem value="all">All time</MenuItem>
-            <MenuItem value="today">Today</MenuItem>
-            <MenuItem value="week">This week</MenuItem>
-          </Select>
-        </FormControl>
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
       </div>
-      <DataTable
-        columns={["Order", "Account", "Symbol", "Type", "Volume", "Open price", "P/L", "Status"]}
-        rows={rows.map((order) => [
-          order.id,
-          getAccountName(state.accounts, order.accountId),
-          order.symbol,
-          order.side,
-          order.volume.toFixed(2),
-          String(order.openPrice),
-          formatMoney(order.pnl),
-          order.status,
-        ])}
-        empty="No orders match this filter."
-      />
+      <OrdersHistoryTable orders={rows} empty="No orders match this filter." />
     </Page>
+  );
+}
+
+function PaymentsNoActiveAccounts({ openDialog }: { openDialog: DialogOpener }) {
+  return (
+    <div className="payments-no-active">
+      <CircleHelp size={48} strokeWidth={1.5} className="payments-no-active-icon" aria-hidden />
+      <Typography variant="h5" component="h2">
+        You don&apos;t have any active accounts.
+      </Typography>
+      <Stack spacing={1} sx={{ alignItems: "center" }}>
+        <Typography color="text.secondary">Only real accounts can be used for trading.</Typography>
+        <Typography color="text.secondary">Create an account to start depositing and withdrawing.</Typography>
+      </Stack>
+      <Button variant="contained" onClick={() => openDialog({ name: "openAccount" })}>
+        Create new account
+      </Button>
+    </div>
   );
 }
 
 function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; openDialog: DialogOpener; toast: Toast; navigate: (route: Route) => void }) {
   const { state, dispatch } = usePA();
+  const language = state.settings.language;
   const kycStatus = state.userProfile?.kycStatus ?? 0;
-  const [accountId, setAccountId] = useState(state.accounts.find((account) => account.status === "Active")?.id ?? "");
-  const [filter, setFilter] = useState("");
+  const [accountId, setAccountId] = useState(() => pickDefaultFundAccountId(state.accounts, kycStatus));
+  const [transactionFilters, setTransactionFilters] = useState<TransactionHistoryFilters>(defaultTransactionHistoryFilters);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const flow = route.includes("withdrawal") ? "withdrawal" : "deposit";
+
+  useEffect(() => {
+    const active = state.accounts.filter((account) => account.status === "Active");
+    if (!active.some((account) => account.id === accountId)) {
+      setAccountId(pickDefaultFundAccountId(state.accounts, kycStatus));
+    }
+  }, [state.accounts, kycStatus, accountId]);
 
   useEffect(() => {
     if (!route.startsWith("/pa/payments-and-wallet")) return;
@@ -1448,18 +1445,24 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
   }, [dispatch, route, toast]);
 
   if (route.endsWith("/history")) {
-    const rows = state.transactions.filter((item) => `${item.type} ${item.reference} ${getAccountName(state.accounts, item.accountId)}`.toLowerCase().includes(filter.toLowerCase()));
+    const rows = filterTransactions(state.transactions, transactionFilters);
     return (
-      <Page title="Transaction history" actions={<Button variant="outlined" startIcon={<Download size={16} />} onClick={() => { downloadCsv("transactions.csv", rows); toast("Transaction CSV generated."); }}>Download CSV</Button>}>
-        <div className="toolbar">
-          <TextField
-            size="small"
-            placeholder="Search transactions"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment> } }}
-          />
-        </div>
+      <Page title="Transaction history" actions={<Button variant="outlined" startIcon={<Download size={16} />} onClick={() => {
+          downloadCsv("transactions.csv", rows.map((item) => ({
+            Reference: item.reference,
+            Type: item.type,
+            Account: getAccountName(state.accounts, item.accountId),
+            Amount: formatMoney(item.amount, item.currency),
+            Status: item.status,
+            Created: formatDate(item.createdAt),
+          })));
+          toast("Transaction CSV generated.");
+        }}>Download CSV</Button>}>
+        <TransactionHistoryFiltersBar
+          value={transactionFilters}
+          onChange={setTransactionFilters}
+          accounts={state.accounts}
+        />
         <DataTable
           columns={["Reference", "Type", "Account", "Amount", "Status", "Created"]}
           rows={rows.map((item) => [item.reference, item.type, getAccountName(state.accounts, item.accountId), formatMoney(item.amount, item.currency), item.status, formatDate(item.createdAt)])}
@@ -1493,16 +1496,20 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
     );
   }
 
+  const activeAccounts = state.accounts.filter((account) => account.status === "Active");
+  if (activeAccounts.length === 0) {
+    return (
+      <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
+        <PaymentsNoActiveAccounts openDialog={openDialog} />
+      </Page>
+    );
+  }
+
   const methods = paymentMethods.filter((method) => method.flow === flow);
   const selectedAccount = state.accounts.find((account) => account.id === accountId);
   const fundBlocked = selectedAccount ? !canFundAccount(selectedAccount.kind, kycStatus) : false;
   return (
     <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
-      {fundBlocked ? (
-        <Stack spacing={2}>
-          <KycPaymentBlock kycStatus={kycStatus} navigate={navigate} openDialog={openDialog} toast={toast} />
-        </Stack>
-      ) : (
       <div className="payment-layout">
         <Paper className="payment-account">
           <Typography variant="h3">Account</Typography>
@@ -1514,6 +1521,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
                 .map((account) => (
                   <MenuItem key={account.id} value={account.id}>
                     {getAccountName(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}
+                    {account.kind === "Demo" ? " · Demo" : ""}
                   </MenuItem>
                 ))}
             </Select>
@@ -1522,21 +1530,34 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
             Internal transfer
           </Button>
         </Paper>
-        <div className="method-grid">
-          {methods.map((method) => (
-            <button className="method-card" type="button" key={method.id} onClick={() => openDialog({ name: "payment", flow, accountId })}>
-        <Stack direction="row" sx={{ justifyContent: "space-between" }}>
-                <CreditCard size={22} />
-                {method.recommended && <Chip label="Recommended" size="small" color="primary" />}
-              </Stack>
-              <strong>{method.name}</strong>
-              <span>{method.network}</span>
-              <small>{method.processingTime} · min {formatMoney(method.min)} · fee {method.fee}</small>
-            </button>
-          ))}
-        </div>
+        <Stack spacing={2}>
+          {fundBlocked ? (
+            <KycPaymentBlock kycStatus={kycStatus} language={language} navigate={navigate} openDialog={openDialog} toast={toast} />
+          ) : null}
+          <div className="method-grid">
+            {methods.map((method) => (
+              <button
+                className="method-card"
+                type="button"
+                key={method.id}
+                disabled={fundBlocked}
+                onClick={() => {
+                  if (fundBlocked) return;
+                  openDialog({ name: "payment", flow, accountId });
+                }}
+              >
+                <Stack direction="row" sx={{ justifyContent: "space-between" }}>
+                  <CreditCard size={22} />
+                  {method.recommended && <Chip label="Recommended" size="small" color="primary" />}
+                </Stack>
+                <strong>{method.name}</strong>
+                <span>{method.network}</span>
+                <small>{method.processingTime} · min {formatMoney(method.min)} · fee {method.fee}</small>
+              </button>
+            ))}
+          </div>
+        </Stack>
       </div>
-      )}
     </Page>
   );
 }
@@ -1734,98 +1755,236 @@ function SupportHubPage({ openDialog, toast }: { openDialog: DialogOpener; toast
   );
 }
 
+function TerminalSettingsSection({ toast }: { toast: Toast }) {
+  const { state, dispatch } = usePA();
+  const [editing, setEditing] = useState<"MT5" | "MT4" | null>(null);
+  const [draftMt5, setDraftMt5] = useState<Mt5Terminal | "">("");
+  const [draftMt4, setDraftMt4] = useState<Mt4Terminal | "">("");
+
+  const mt5Options: Mt5Terminal[] = ["Exness Web Trading Terminal", "MetaTrader 5", "MT5 Web Terminal"];
+  const mt4Options: Mt4Terminal[] = ["MetaTrader 4", "MT4 Web Terminal"];
+
+  const openEditor = (platform: "MT5" | "MT4") => {
+    setEditing(platform);
+    if (platform === "MT5") {
+      setDraftMt5(state.settings.mt5Terminal ?? "");
+    } else {
+      setDraftMt4(state.settings.mt4Terminal ?? "");
+    }
+  };
+
+  const closeEditor = () => {
+    setEditing(null);
+    setDraftMt5("");
+    setDraftMt4("");
+  };
+
+  const saveMt5 = () => {
+    if (!draftMt5) return;
+    dispatch({ type: "SET_MT5_TERMINAL", terminal: draftMt5 });
+    toast("Trading terminal preferences saved.");
+    closeEditor();
+  };
+
+  const saveMt4 = () => {
+    if (!draftMt4) return;
+    dispatch({ type: "SET_MT4_TERMINAL", terminal: draftMt4 });
+    toast("Trading terminal preferences saved.");
+    closeEditor();
+  };
+
+  const renderEditor = (
+    platform: "MT5" | "MT4",
+    options: readonly string[],
+    draft: string,
+    onDraftChange: (value: string) => void,
+    onSave: () => void,
+  ) => (
+    <div className="terminal-settings-editor">
+      <div className="terminal-settings-editor-title">Set trading terminal</div>
+      <div className="terminal-settings-options" role="radiogroup" aria-label="Set trading terminal">
+        {options.map((option) => (
+          <label key={option} className="terminal-settings-option">
+            <input
+              type="radio"
+              name={`terminal-${platform}`}
+              value={option}
+              checked={draft === option}
+              onChange={() => onDraftChange(option)}
+            />
+            <span>{option}</span>
+          </label>
+        ))}
+      </div>
+      <div className="terminal-settings-actions">
+        <button
+          type="button"
+          className={`terminal-settings-save-btn${draft ? " is-active" : ""}`}
+          disabled={!draft}
+          onClick={onSave}
+        >
+          Set terminal
+        </button>
+        <button type="button" className="terminal-settings-cancel-btn" onClick={closeEditor}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="terminal-settings-panel">
+      <div className={`terminal-settings-row${editing === "MT5" ? " is-editing" : ""}`}>
+        <div className="terminal-settings-label">MT5 Account</div>
+        <div className="terminal-settings-content">
+          {editing === "MT5" ? (
+            renderEditor("MT5", mt5Options, draftMt5, (value) => setDraftMt5(value as Mt5Terminal), saveMt5)
+          ) : (
+            <div className="terminal-settings-summary">
+              <span className="terminal-settings-status">Set your default terminal</span>
+              <button type="button" className="terminal-settings-change-btn" onClick={() => openEditor("MT5")}>
+                Change
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={`terminal-settings-row${editing === "MT4" ? " is-editing" : ""}`}>
+        <div className="terminal-settings-label">MT4 Account</div>
+        <div className="terminal-settings-content">
+          {editing === "MT4" ? (
+            renderEditor("MT4", mt4Options, draftMt4, (value) => setDraftMt4(value as Mt4Terminal), saveMt4)
+          ) : (
+            <div className="terminal-settings-summary">
+              <span className="terminal-settings-status">Set your default terminal</span>
+              <button type="button" className="terminal-settings-change-btn" onClick={() => openEditor("MT4")}>
+                Change
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="terminal-settings-row">
+        <div className="terminal-settings-label">EXT Account</div>
+        <div className="terminal-settings-content">
+          <span className="terminal-settings-static">Exness trading terminal only</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ route, openDialog, toast }: { route: Route; openDialog: DialogOpener; toast: Toast }) {
   const { state, dispatch, verificationComplete } = usePA();
+  const language = state.settings.language;
   if (route.endsWith("/security")) {
+    const maskedEmail = state.userProfile?.maskedEmail ?? "—";
     return (
       <Page title="Security">
-        <Card>
-          <CardContent className="settings-stack">
-            <Typography variant="h3">Login details</Typography>
-            <ActionRow title="Password" text="Last changed 28 days ago" action={<Button variant="outlined" onClick={() => openDialog({ name: "password" })}>Change</Button>} />
-            <ActionRow
-              title="Two-step verification"
-              text={state.settings.twoFactor ? "Authenticator app is enabled." : "Protect withdrawals and profile changes."}
-              action={<Switch checked={state.settings.twoFactor} onChange={(event) => { dispatch({ type: "TOGGLE_TWO_FACTOR", enabled: event.target.checked }); toast(event.target.checked ? "Two-step verification enabled." : "Two-step verification disabled."); }} />}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="settings-stack">
-            <Typography variant="h3">Trusted devices</Typography>
-            {state.settings.sessions.map((session) => (
-              <ActionRow key={session.id} title={session.device} text={`${session.location} · ${session.lastActive}`} action={session.current ? <Chip label="Current" /> : <Button variant="outlined" onClick={() => toast(`${session.device} logged out locally.`)}>Log out</Button>} />
-            ))}
-            <Button variant="outlined" onClick={() => { dispatch({ type: "LOG_OUT_OTHER_SESSIONS" }); toast("Other devices were logged out locally."); }}>
-              Log out from other devices
-            </Button>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <ActionRow title="Terminate Exness Personal Area" text="Permanently close this local preview account." action={<Button color="error" variant="outlined" onClick={() => openDialog({ name: "terminate" })}>Terminate</Button>} />
-          </CardContent>
-        </Card>
+        <section className="security-section">
+          <h2 className="security-section-title">登录信息</h2>
+          <p className="security-section-desc">
+            用于登录 Exness 的信息。如您认为密码可能已经泄露，请随时更改密码。
+          </p>
+          <div className="security-panel">
+            <div className="security-row">
+              <span className="security-label">登录</span>
+              <span className="security-value">{maskedEmail}</span>
+              <span className="security-action-spacer" aria-hidden="true" />
+            </div>
+            <div className="security-row">
+              <span className="security-label">密码</span>
+              <span className="security-value security-password">••••••••••••</span>
+              <button type="button" className="security-change-btn" onClick={() => openDialog({ name: "password" })}>
+                更改
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="security-section">
+          <h2 className="security-section-title">2 步验证方式</h2>
+          <p className="security-section-desc">
+            2 步验证可以确保所有敏感交易均已得到您的授权。我们建议您输入验证码确认相关交易。
+          </p>
+          <div className="security-panel">
+            <div className="security-row">
+              <span className="security-label">验证方式</span>
+              <span className="security-value">{maskedEmail}</span>
+              <button
+                type="button"
+                className="security-change-btn"
+                onClick={() => toast("Email verification is your current two-step method.")}
+              >
+                更改
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="security-section">
+          <h2 className="security-section-title">设备和账户安全</h2>
+          <div className="security-panel">
+            <div className="security-row security-row--devices">
+              <span className="security-device-text">
+                从其他所有设备（本设备除外）退出登录，以确保账户安全。
+              </span>
+              <button
+                type="button"
+                className="security-logout-btn"
+                onClick={() => {
+                  dispatch({ type: "LOG_OUT_OTHER_SESSIONS" });
+                  toast("Logged out from other devices.");
+                }}
+              >
+                <LogOut size={16} />
+                从其他设备退出登录
+              </button>
+            </div>
+          </div>
+        </section>
       </Page>
     );
   }
 
   if (route.endsWith("/terminal-settings")) {
-    const [terminal, setTerminal] = useState(state.settings.terminal);
-    const [openMode, setOpenMode] = useState(state.settings.terminalOpenMode);
     return (
       <Page title="Trading Terminal">
-        <Card>
-          <CardContent className="settings-stack">
-            <Typography variant="h3">Set the default trading terminal</Typography>
-            <FormControl fullWidth>
-              <InputLabel>Trading terminal</InputLabel>
-              <Select value={terminal} label="Trading terminal" onChange={(event) => setTerminal(event.target.value as typeof terminal)}>
-                <MenuItem value="Exness Terminal">Exness Terminal</MenuItem>
-                <MenuItem value="MetaTrader WebTerminal">MetaTrader WebTerminal</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl fullWidth>
-              <InputLabel>Open trades in</InputLabel>
-              <Select value={openMode} label="Open trades in" onChange={(event) => setOpenMode(event.target.value as typeof openMode)}>
-                <MenuItem value="Current tab">Current tab</MenuItem>
-                <MenuItem value="New tab">New tab</MenuItem>
-              </Select>
-            </FormControl>
-            <Button variant="contained" onClick={() => { dispatch({ type: "SET_TERMINAL", terminal, openMode }); toast("Trading terminal preferences saved."); }}>
-              Change
-            </Button>
-          </CardContent>
-        </Card>
+        <Typography className="terminal-settings-lead" color="text.secondary">
+          Set the default trading terminal for all your MT4 and MT5 accounts.
+        </Typography>
+        <TerminalSettingsSection toast={toast} />
       </Page>
     );
   }
 
   return (
     <Page title="Profile">
-      <Card>
+      <Card className="profile-page-card">
         <CardContent className="settings-stack">
-          <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div className="profile-status-head">
             <div>
               <Typography variant="h3">Account Status</Typography>
-              <Typography color="text.secondary">{kycStatusLabel(state.userProfile?.kycStatus ?? 0)}</Typography>
+              <Typography color="text.secondary">{kycStatusLabel(state.userProfile?.kycStatus ?? 0, language)}</Typography>
             </div>
             <Chip
               color={verificationComplete ? "success" : state.userProfile?.kycStatus === 3 ? "error" : "warning"}
-              label={kycStatusLabel(state.userProfile?.kycStatus ?? 0)}
+              label={kycStatusLabel(state.userProfile?.kycStatus ?? 0, language)}
             />
-          </Stack>
+          </div>
           {state.userProfile?.kycStatus === 3 && state.userProfile.kycRejectReason ? (
             <Alert severity="error">Rejected: {state.userProfile.kycRejectReason}</Alert>
           ) : null}
           {state.verification.map((step, index) => (
-            <Accordion key={step.id} defaultExpanded={index === 0 || step.status !== "Completed"}>
+            <Accordion key={step.id} className="profile-kyc-step" defaultExpanded={index === 0 || step.status !== "Completed"}>
               <AccordionSummary expandIcon={<ChevronDown size={18} />}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                <div className="verification-step-summary">
                   <ShieldCheck size={18} />
-                  <Typography>{step.title}</Typography>
-                  <Chip size="small" label={step.status} />
-                </Stack>
+                  <Typography component="span" sx={{ flex: 1 }}>{step.title}</Typography>
+                  <Chip size="small" label={verificationStatusLabel(step.status, language)} />
+                </div>
               </AccordionSummary>
               <AccordionDetails>
                 <Typography>{step.description}</Typography>
@@ -1855,7 +2014,7 @@ function SettingsPage({ route, openDialog, toast }: { route: Route; openDialog: 
   );
 }
 
-function DialogHost({ dialog, close, openDialog, toast }: { dialog: DialogState; close: () => void; openDialog: DialogOpener; toast: Toast }) {
+function DialogHost({ dialog, close, openDialog, toast, setStage }: { dialog: DialogState; close: () => void; openDialog: DialogOpener; toast: Toast; setStage: (stage: Stage) => void }) {
   if (!dialog) return null;
   if (dialog.name === "openAccount") return <OpenAccountDialog close={close} toast={toast} />;
   if (dialog.name === "payment") return <PaymentFlowDialog flow={dialog.flow} accountId={dialog.accountId} close={close} openDialog={openDialog} toast={toast} />;
@@ -1865,9 +2024,10 @@ function DialogHost({ dialog, close, openDialog, toast }: { dialog: DialogState;
   if (dialog.name === "rename") return <RenameDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "leverage") return <LeverageDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "accountInfo") return <AccountInfoDialog accountId={dialog.accountId} close={close} openDialog={openDialog} toast={toast} />;
-  if (dialog.name === "password") return <PasswordDialog close={close} toast={toast} />;
+  if (dialog.name === "password") return <PasswordDialog close={close} toast={toast} setStage={setStage} />;
   if (dialog.name === "terminate") return <ConfirmDialog title="Terminate Personal Area" body="This is a static preview, so termination only shows the confirmation flow and does not delete anything." close={close} confirmLabel="Terminate" onConfirm={() => toast("Termination request simulated locally.")} />;
   if (dialog.name === "wallet") return <WalletDialog close={close} toast={toast} />;
+  if (dialog.name === "setBalance") return <SetBalanceDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "refer") return <ConfirmDialog title="Become a partner" body="Invite a friend and earn up to 40% of our revenue. The partner link can be copied in this preview." close={close} confirmLabel="Copy link" onConfirm={() => copyToClipboard("https://one.exness.link/a/mock-partner", toast)} />;
   return <ConfirmDialog title={dialog.title} body={dialog.body} close={close} confirmLabel="Got it" onConfirm={() => undefined} />;
 }
@@ -1944,6 +2104,7 @@ function OpenAccountDialog({ close, toast }: { close: () => void; toast: Toast }
 
 function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow: "deposit" | "withdrawal"; accountId?: string; close: () => void; openDialog: DialogOpener; toast: Toast }) {
   const { state, dispatch } = usePA();
+  const language = state.settings.language;
   const kycStatus = state.userProfile?.kycStatus ?? 0;
   const fundAccounts = state.accounts.filter((account) => account.status === "Active");
   const [activeStep, setActiveStep] = useState(0);
@@ -1955,7 +2116,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
   });
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [methodId, setMethodId] = useState("");
-  const [amount, setAmount] = useState(50);
+  const [amountText, setAmountText] = useState(() => defaultAmountText(flow));
   const [voucherImage, setVoucherImage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pendingWithdraw, setPendingWithdraw] = useState(false);
@@ -1968,11 +2129,23 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
   const method = methods.find((item) => item.id === methodId);
   const canProceed = account ? canFundAccount(account.kind, kycStatus) : false;
   const availableBalance = account?.balance ?? 0;
+  const amount = parseFundAmount(amountText);
   const amountError = validateFundAmount(flow, amount, availableBalance, method);
+  const amountBlocksContinue = activeStep >= 2 && (amount <= 0 || Boolean(amountError));
+
+  useEffect(() => {
+    if (accountId && fundAccounts.some((item) => item.id === accountId)) {
+      setSelectedAccount(accountId);
+    }
+  }, [accountId, fundAccounts]);
 
   useEffect(() => {
     setVoucherImage("");
   }, [isDemo]);
+
+  useEffect(() => {
+    setAmountText(defaultAmountText(flow));
+  }, [selectedAccount, flow]);
 
   useEffect(() => {
     if (flow !== "withdrawal" || !canProceed || isDemo) {
@@ -1995,9 +2168,10 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
   }, [flow, canProceed, selectedAccount, isDemo]);
 
   useEffect(() => {
-    if (flow !== "withdrawal") return;
-    setAmount((prev) => clampWithdrawAmount(prev, availableBalance, method));
-  }, [flow, selectedAccount, availableBalance, method?.id, method?.max]);
+    if (activeStep > confirmStep) {
+      setActiveStep(confirmStep);
+    }
+  }, [activeStep, confirmStep]);
 
   useEffect(() => {
     if (!canProceed) return;
@@ -2027,23 +2201,26 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
       return;
     }
     if (activeStep === 2) {
-      const err = validateFundAmount(flow, amount, availableBalance, method);
+      const parsed = parseFundAmount(amountText);
+      const err = validateFundAmount(flow, parsed, availableBalance, method);
       if (err) {
         toast(err);
         return;
       }
+      setAmountText(formatFundAmountText(parsed));
     }
     setActiveStep(activeStep + 1);
   }
 
   async function finish() {
     if (!canProceed) {
-      promptKycForPayments(kycStatus, openDialog, toast);
+      promptKycForPayments(kycStatus, openDialog, toast, language);
       close();
       return;
     }
-    if (!selectedAccount || !methodId || amount <= 0) return;
-    const err = validateFundAmount(flow, amount, availableBalance, method);
+    const submitAmount = parseFundAmount(amountText);
+    if (!selectedAccount || !methodId || submitAmount <= 0) return;
+    const err = validateFundAmount(flow, submitAmount, availableBalance, method);
     if (err) {
       toast(err);
       return;
@@ -2061,7 +2238,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
       const payload = {
         accountId: selectedAccount,
         methodId,
-        amount,
+        amount: roundFundAmount(submitAmount),
         currency: account?.currency ?? "USD",
         voucherImage: isDemo ? undefined : voucherImage,
       };
@@ -2108,14 +2285,14 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
       <Dialog open onClose={close} fullWidth maxWidth="sm">
         <DialogTitle>{flow === "deposit" ? "Deposit" : "Withdrawal"}</DialogTitle>
         <DialogContent>
-          <KycPaymentBlock kycStatus={kycStatus} openDialog={openDialog} toast={toast} />
+          <KycPaymentBlock kycStatus={kycStatus} language={language} openDialog={openDialog} toast={toast} />
         </DialogContent>
         <DialogActions>
           <Button onClick={close}>Close</Button>
           <Button
             variant="contained"
             onClick={() => {
-              promptKycForPayments(kycStatus, openDialog, toast);
+              promptKycForPayments(kycStatus, openDialog, toast, language);
               close();
             }}
           >
@@ -2171,11 +2348,16 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
         {activeStep === 2 && (
           <TextField
             label="Amount"
-            type="number"
-            value={amount}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setAmount(flow === "withdrawal" ? clampWithdrawAmount(next, availableBalance, method) : next);
+            type="text"
+            inputMode="decimal"
+            placeholder={flow === "deposit" ? FUND_AMOUNT_DEFAULT_DEPOSIT : "0.00"}
+            value={amountText}
+            onChange={(event) => setAmountText(normalizeAmountInput(event.target.value))}
+            onBlur={() => {
+              const parsed = parseFundAmount(amountText);
+              if (Number.isFinite(parsed) && parsed > 0) {
+                setAmountText(formatFundAmountText(parsed));
+              }
             }}
             error={Boolean(amountError)}
             helperText={
@@ -2184,7 +2366,6 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
                   ? `Available ${formatMoney(availableBalance, account?.currency ?? "USD")}${method ? ` · Min ${formatMoney(method.min)} · Max ${formatMoney(method.max)}` : ""}`
                   : method ? `Min ${formatMoney(method.min)} · Max ${formatMoney(method.max)}` : "")
             }
-            slotProps={flow === "withdrawal" ? { htmlInput: { min: method?.min ?? 0, max: availableBalance, step: "0.01" } } : undefined}
           />
         )}
         {!isDemo && activeStep === voucherStep && (
@@ -2213,7 +2394,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
           <Paper className="confirm-box">
             <Info label="Account" value={account ? getAccountName(state.accounts, account.id) : ""} />
             <Info label="Method" value={method ? `${method.name} ${method.network}` : ""} />
-            <Info label="Amount" value={formatMoney(amount, account?.currency ?? "USD")} />
+            <Info label="Amount" value={formatMoney(roundFundAmount(amount), account?.currency ?? "USD")} />
             <Info label="Fee" value={method?.fee ?? "0%"} />
             {!isDemo ? <Info label="Voucher" value={voucherImage ? "Attached" : "Missing"} /> : null}
             <Typography variant="caption" color="text.secondary">
@@ -2231,8 +2412,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
           disabled={
             !selectedAccount
             || !methodId
-            || amount <= 0
-            || Boolean(amountError)
+            || amountBlocksContinue
             || submitting
             || (flow === "withdrawal" && pendingWithdraw && !isDemo)
             || (realVoucherRequired && (activeStep === voucherStep || activeStep === confirmStep))
@@ -2504,6 +2684,75 @@ function VerificationDialog({ stepId, close, toast }: { stepId?: string; close: 
   );
 }
 
+function SetBalanceDialog({ accountId, close, toast }: { accountId: string; close: () => void; toast: Toast }) {
+  const { state, dispatch } = usePA();
+  const account = state.accounts.find((item) => item.id === accountId);
+  const [amountText, setAmountText] = useState(account ? String(account.balance) : "");
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!account) return null;
+
+  async function submit() {
+    const amount = parseFundAmount(amountText);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast("Enter a valid amount.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await fundApi.setDemoAccountBalance({
+        accountId,
+        amount,
+        currency: account.currency,
+      });
+      dispatch({ type: "SET_DEMO_BALANCE", accountId, amount });
+      toast("Demo account balance updated.");
+      close();
+    } catch (err) {
+      dispatch({ type: "SET_DEMO_BALANCE", accountId, amount });
+      toast(err instanceof Error ? err.message : "Balance updated locally.");
+      close();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open onClose={close} fullWidth maxWidth="xs">
+      <DialogTitle className="set-balance-dialog-title">
+        <div>
+          <Typography variant="h6" component="div">
+            Set balance for demo account
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Account: #{account.login}
+          </Typography>
+        </div>
+        <IconButton aria-label="Close" onClick={close}>
+          <X size={18} />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent className="dialog-grid set-balance-dialog-content">
+        <TextField
+          label="Amount"
+          value={amountText}
+          onChange={(event) => setAmountText(normalizeAmountInput(event.target.value))}
+          fullWidth
+          slotProps={{
+            input: {
+              endAdornment: <InputAdornment position="end">{account.currency}</InputAdornment>,
+            },
+          }}
+        />
+        <Button variant="contained" fullWidth disabled={submitting} onClick={() => void submit()}>
+          {submitting ? "Setting..." : "Set balance"}
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RenameDialog({ accountId, close, toast }: { accountId: string; close: () => void; toast: Toast }) {
   const { state, dispatch } = usePA();
   const account = state.accounts.find((item) => item.id === accountId);
@@ -2572,19 +2821,98 @@ function AccountInfoDialog({ accountId, close, openDialog, toast }: { accountId:
   );
 }
 
-function PasswordDialog({ close, toast }: { close: () => void; toast: Toast }) {
+function PasswordDialog({ close, toast, setStage }: { close: () => void; toast: Toast; setStage: (stage: Stage) => void }) {
+  const { state } = usePA();
+  const email = state.userProfile?.email ?? "";
+  const [newPassword, setNewPassword] = useState("");
+  const [emailCode, setEmailCode] = useState("");
   const [show, setShow] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeCooldown, setCodeCooldown] = useState(0);
+
+  useEffect(() => {
+    if (codeCooldown <= 0) return;
+    const timer = window.setTimeout(() => setCodeCooldown((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [codeCooldown]);
+
+  async function sendCode() {
+    if (!email.trim()) {
+      toast("Email not available.");
+      return;
+    }
+    setSendingCode(true);
+    try {
+      await authApi.sendEmailCode(email.trim(), "reset");
+      setCodeCooldown(60);
+      toast("Email code sent. Dev mode uses 123456.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to send email code.");
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
+  async function submit() {
+    if (!email.trim() || !newPassword || !emailCode.trim()) {
+      toast("Please fill in all fields.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await authApi.resetPassword({
+        email: email.trim(),
+        emailCode: emailCode.trim(),
+        newPassword,
+      });
+      toast("Password changed successfully. Please sign in again.");
+      clearTokens();
+      close();
+      setStage("login");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to change password.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <Dialog open onClose={close} fullWidth maxWidth="xs">
       <DialogTitle>Change password</DialogTitle>
       <DialogContent className="dialog-grid">
-        <TextField label="Current password" type={show ? "text" : "password"} />
-        <TextField label="New password" type={show ? "text" : "password"} />
-        <FormControlLabel control={<Checkbox checked={show} onChange={(event) => setShow(event.target.checked)} />} label="Show passwords" />
+        <TextField
+          label="Email verification code"
+          value={emailCode}
+          onChange={(event) => setEmailCode(event.target.value)}
+          slotProps={{
+            input: {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Button
+                    size="small"
+                    disabled={sendingCode || codeCooldown > 0}
+                    onClick={() => void sendCode()}
+                  >
+                    {codeCooldown > 0 ? `${codeCooldown}s` : "Send code"}
+                  </Button>
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+        <TextField
+          label="New password"
+          type={show ? "text" : "password"}
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          autoComplete="new-password"
+        />
+        <FormControlLabel control={<Checkbox checked={show} onChange={(event) => setShow(event.target.checked)} />} label="Show password" />
       </DialogContent>
       <DialogActions>
-        <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" onClick={() => { toast("Password change simulated locally."); close(); }}>Change</Button>
+        <Button onClick={close} disabled={submitting}>Cancel</Button>
+        <Button variant="contained" disabled={submitting} onClick={() => void submit()}>Change</Button>
       </DialogActions>
     </Dialog>
   );
@@ -2785,17 +3113,6 @@ function Info({ label, value, onCopy }: { label: string; value: string; onCopy?:
         </IconButton>
       )}
     </div>
-  );
-}
-
-function LegalFooter() {
-  return (
-    <footer className="legal-footer">
-      <span>© 2008-2026. Exness</span>
-      <a>Legal documents</a>
-      <a>Risk disclosure</a>
-      <a>Privacy agreement</a>
-    </footer>
   );
 }
 

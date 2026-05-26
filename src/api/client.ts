@@ -47,7 +47,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
 
   if (json.code !== 1) {
-    throw new Error(json.msg || `API error ${json.code}`);
+    const hints: Record<number, string> = {
+      40007: "登录尝试次数过多，请 30 分钟后再试",
+    };
+    throw new Error(hints[json.code] ?? json.msg ?? `API error ${json.code}`);
   }
   return json.data;
 }

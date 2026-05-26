@@ -10,6 +10,7 @@ import type {
   VerificationStep,
   WalletItem,
 } from "../types";
+import { verification as verificationTemplate } from "../data/mockData";
 import { mapVerificationFromKyc } from "../utils/kycSync";
 
 type Action =
@@ -19,6 +20,7 @@ type Action =
   | { type: "ADD_ACCOUNT"; payload: Omit<Account, "id" | "login" | "createdAt" | "status"> }
   | { type: "RENAME_ACCOUNT"; accountId: string; nickname: string }
   | { type: "CHANGE_LEVERAGE"; accountId: string; leverage: string }
+  | { type: "SET_DEMO_BALANCE"; accountId: string; amount: number }
   | { type: "ARCHIVE_ACCOUNT"; accountId: string }
   | { type: "ADD_TRANSACTION"; payload: Omit<Transaction, "id" | "createdAt" | "reference" | "status"> }
   | { type: "ADD_TICKET"; payload: Omit<Ticket, "id" | "createdAt" | "updatedAt" | "status" | "priority"> }
@@ -28,7 +30,8 @@ type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "COMPLETE_VERIFICATION"; stepId: string; values: Record<string, string> }
   | { type: "SET_LANGUAGE"; language: string }
-  | { type: "SET_TERMINAL"; terminal: PAState["settings"]["terminal"]; openMode: PAState["settings"]["terminalOpenMode"] }
+  | { type: "SET_MT5_TERMINAL"; terminal: PAState["settings"]["mt5Terminal"] }
+  | { type: "SET_MT4_TERMINAL"; terminal: PAState["settings"]["mt4Terminal"] }
   | { type: "TOGGLE_TWO_FACTOR"; enabled: boolean }
   | { type: "LOG_OUT_OTHER_SESSIONS" }
   | { type: "DISMISS_INSTALL_TOAST" };
@@ -77,6 +80,7 @@ function reducer(state: PAState, action: Action): PAState {
           action.profile.kycStatus,
           action.profile.kycRejectReason,
           state.verification,
+          state.settings.language,
         ),
       };
     case "SET_ACCOUNTS":
@@ -123,6 +127,17 @@ function reducer(state: PAState, action: Action): PAState {
           account.id === action.accountId ? { ...account, leverage: action.leverage } : account,
         ),
       };
+    case "SET_DEMO_BALANCE": {
+      const amount = Math.max(0, Number(action.amount.toFixed(2)));
+      return {
+        ...state,
+        accounts: state.accounts.map((account) =>
+          account.id === action.accountId
+            ? { ...account, balance: amount, equity: amount, freeMargin: amount, margin: 0 }
+            : account,
+        ),
+      };
+    }
     case "ARCHIVE_ACCOUNT":
       return {
         ...state,
@@ -236,18 +251,38 @@ function reducer(state: PAState, action: Action): PAState {
         ...state,
         verification: state.verification.map((step) => (step.id === action.stepId ? completeStep(step) : step)),
       };
-    case "SET_LANGUAGE":
+    case "SET_LANGUAGE": {
+      const steps = verificationTemplate.map((tpl) => {
+        const cur = state.verification.find((s) => s.id === tpl.id);
+        return cur ? { ...tpl, status: cur.status, completedAt: cur.completedAt } : tpl;
+      });
       return {
         ...state,
         settings: { ...state.settings, language: action.language },
+        verification: state.userProfile
+          ? mapVerificationFromKyc(
+              state.userProfile.kycStatus,
+              state.userProfile.kycRejectReason,
+              steps,
+              action.language,
+            )
+          : state.verification,
       };
-    case "SET_TERMINAL":
+    }
+    case "SET_MT5_TERMINAL":
       return {
         ...state,
         settings: {
           ...state.settings,
-          terminal: action.terminal,
-          terminalOpenMode: action.openMode,
+          mt5Terminal: action.terminal,
+        },
+      };
+    case "SET_MT4_TERMINAL":
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          mt4Terminal: action.terminal,
         },
       };
     case "TOGGLE_TWO_FACTOR":

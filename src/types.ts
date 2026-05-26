@@ -120,6 +120,23 @@ export interface Insight {
   publishedAt: string;
 }
 
+export interface MarketNewsTag {
+  id: string;
+  name: string;
+}
+
+export interface MarketNewsItem {
+  id: string;
+  title: string;
+  summary: string;
+  html: string;
+  url: string;
+  publicationDate: string;
+  authorName: string;
+  tags: MarketNewsTag[];
+  imageUrl?: string;
+}
+
 export interface VerificationStep {
   id: string;
   title: string;
@@ -149,10 +166,13 @@ export interface WalletItem {
   status: "Ready" | "Pending";
 }
 
+export type Mt5Terminal = "Exness Web Trading Terminal" | "MetaTrader 5" | "MT5 Web Terminal";
+export type Mt4Terminal = "MetaTrader 4" | "MT4 Web Terminal";
+
 export interface PaSettings {
   language: string;
-  terminal: "Exness Terminal" | "MetaTrader WebTerminal";
-  terminalOpenMode: "Current tab" | "New tab";
+  mt5Terminal: Mt5Terminal | null;
+  mt4Terminal: Mt4Terminal | null;
   twoFactor: boolean;
   installToastVisible: boolean;
   sessions: Array<{ id: string; device: string; location: string; lastActive: string; current?: boolean }>;
@@ -174,7 +194,7 @@ export interface PAState {
   tickets: Ticket[];
   notifications: NotificationItem[];
   insights: Insight[];
-  news: Insight[];
+  news: MarketNewsItem[];
   verification: VerificationStep[];
   benefits: Benefit[];
   wallets: WalletItem[];

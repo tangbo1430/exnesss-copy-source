@@ -45,3 +45,18 @@ export function createWithdraw(body: {
     body: JSON.stringify(body),
   });
 }
+
+/** 为模拟账户设置余额（接口预留，后端就绪后可直接对接） */
+export function setDemoAccountBalance(body: {
+  accountId: string;
+  amount: number;
+  currency?: string;
+}) {
+  return apiRequest<Account>(`/user/accounts/${body.accountId}/demo-balance`, {
+    method: "PUT",
+    body: JSON.stringify({
+      amount: body.amount,
+      currency: body.currency ?? "USD",
+    }),
+  });
+}

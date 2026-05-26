@@ -71,3 +71,14 @@ export function logout() {
 export function fetchProfile() {
   return apiRequest<ProfileData>("/user/profile");
 }
+
+export function resetPassword(body: {
+  email: string;
+  emailCode: string;
+  newPassword: string;
+}) {
+  return apiRequest<null>("/user/reset-password", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}

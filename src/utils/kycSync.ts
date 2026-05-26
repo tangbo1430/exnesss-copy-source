@@ -1,4 +1,5 @@
 import type { VerificationStep } from "../types";
+import { translateText } from "../i18n";
 
 function completedStep(step: VerificationStep): VerificationStep {
   return {
@@ -8,35 +9,45 @@ function completedStep(step: VerificationStep): VerificationStep {
   };
 }
 
+function t(text: string, language: string): string {
+  return translateText(text, language);
+}
+
 export function mapVerificationFromKyc(
   kycStatus: number,
   rejectReason: string,
   steps: VerificationStep[],
+  language: string,
 ): VerificationStep[] {
   return steps.map((step) => {
+    const localized = {
+      ...step,
+      title: t(step.title, language),
+      description: t(step.description, language),
+    };
     if (kycStatus === 2) {
-      return completedStep(step);
+      return completedStep(localized);
     }
     if (step.id !== "identity") {
-      return step;
+      return localized;
     }
     if (kycStatus === 1) {
       return {
-        ...step,
+        ...localized,
         status: "In progress",
-        description: "Your identity documents are under review.",
+        description: t("Your identity documents are under review.", language),
       };
     }
     if (kycStatus === 3) {
       return {
-        ...step,
+        ...localized,
         status: "Pending",
         description: rejectReason
-          ? `Rejected: ${rejectReason}. Please upload documents again.`
-          : "Your previous submission was rejected. Please upload documents again.",
+          ? t(`Rejected: ${rejectReason}. Please upload documents again.`, language)
+          : t("Your previous submission was rejected. Please upload documents again.", language),
       };
     }
-    return { ...step, status: "Pending" };
+    return { ...localized, status: "Pending" };
   });
 }
 
@@ -49,25 +60,29 @@ export function kycIdentityLocked(kycStatus: number): boolean {
   return kycStatus === 1 || kycStatus === 2;
 }
 
-export function kycPaymentBlockedMessage(kycStatus: number): string {
+export function kycPaymentBlockedMessage(kycStatus: number, language: string): string {
   if (kycStatus === 1) {
-    return "Identity verification is under review. Deposit and withdrawal unlock after approval.";
+    return t("Identity verification is under review. Deposit and withdrawal unlock after approval.", language);
   }
   if (kycStatus === 3) {
-    return "Identity verification was rejected. Resubmit documents before deposit or withdrawal.";
+    return t("Identity verification was rejected. Resubmit documents before deposit or withdrawal.", language);
   }
-  return "Complete identity verification before deposit or withdrawal.";
+  return t("Complete identity verification before deposit or withdrawal.", language);
 }
 
-export function kycStatusLabel(kycStatus: number): string {
+export function kycStatusLabel(kycStatus: number, language: string): string {
   switch (kycStatus) {
     case 1:
-      return "审核中";
+      return t("In progress", language);
     case 2:
-      return "已通过";
+      return t("Verified", language);
     case 3:
-      return "已拒绝";
+      return t("Rejected", language);
     default:
-      return "未认证";
+      return t("Not verified", language);
   }
+}
+
+export function verificationStatusLabel(status: VerificationStep["status"], language: string): string {
+  return t(status, language);
 }
