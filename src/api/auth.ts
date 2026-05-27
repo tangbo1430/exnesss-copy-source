@@ -17,9 +17,19 @@ export type ProfileData = {
   userId: number;
   email: string;
   maskedEmail: string;
+  phone?: string;
+  maskedPhone?: string;
+  phoneVerified?: boolean;
   kycStatus: number;
   verificationComplete: boolean;
 };
+
+export function verifyPhone(body: { countryCode: string; phoneNumber: string }) {
+  return apiRequest<{ phone: string; maskedPhone: string }>("/user/phone", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
 
 export function fetchCaptcha() {
   return apiRequest<CaptchaData>("/user/captcha");

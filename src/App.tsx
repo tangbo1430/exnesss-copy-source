@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -45,6 +45,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import {
   ArrowDownCircle,
@@ -76,14 +77,12 @@ import {
   LogOut,
   MessageCircle,
   MoreVertical,
-  Newspaper,
   Plus,
   Search,
   Send,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Star,
   TrendingUp,
   UserCircle,
   Wallet,
@@ -93,7 +92,10 @@ import {
 import { PAProvider, usePA } from "./state/paStore";
 import { ThemeModeProvider } from "./theme/ThemeModeProvider";
 import { ThemeMenuButton } from "./components/ThemeMenuButton";
-import { AccountSortSelect, sortAccounts, type AccountSort } from "./components/AccountSortSelect";
+import { AccountsPage } from "./components/AccountsPage";
+import { OpenAccountFlow } from "./components/OpenAccountFlow";
+import { TradeDialog } from "./components/TradeDialog";
+import { accounts as showcaseAccounts } from "./data/mockData";
 import { DateRangePicker, filterByDateRange } from "./components/DateRangePicker";
 import { OrdersHistoryTable } from "./components/OrdersHistoryTable";
 import { TransactionHistoryFiltersBar } from "./components/TransactionHistoryFiltersBar";
@@ -105,14 +107,18 @@ import {
 import { AnalystViewsRoute } from "./components/AnalystViewsPage";
 import { MarketNewsPage } from "./components/MarketNewsPage";
 import { SavingsPage } from "./components/SavingsPage";
+import { CryptoWalletPage } from "./components/CryptoWalletPage";
 import { TradingConditionsPage } from "./components/TradingConditionsPage";
 import { VpsPage } from "./components/VpsPage";
 import { PerformancePage } from "./components/PerformancePage";
 import { LegalFooter } from "./components/LegalFooter";
+import { ProfilePage, PROFILE_FLOW_KEY } from "./components/ProfilePage";
+import { refreshUserProfile } from "./utils/userProfile";
+import { DEFAULT_PA_ROUTE, readPathname, resolvePaRoute, writeAppRoot, writePaPath } from "./utils/paRoutes";
 import type { DateRangeValue } from "./utils/dateRange";
 import { languageOptions, localizeTree } from "./i18n";
 import { clearTokens, getAccessToken, compressImageFile } from "./api/client";
-import { canFundAccount, isDemoFundFlow, pickDefaultFundAccountId } from "./config/simulation";
+import { canFundAccount, isDemoFundFlow, kycAllowsRealFund, pickDefaultFundAccountId } from "./config/simulation";
 import * as authApi from "./api/auth";
 import * as fundApi from "./api/fund";
 import * as kycApi from "./api/kyc";
@@ -136,7 +142,6 @@ import type {
   AccountKind,
   AccountPlatform,
   GroupKey,
-  Insight,
   Mt4Terminal,
   Mt5Terminal,
   OrderStatus,
@@ -158,7 +163,9 @@ function promptKycForPayments(
 ) {
   toast(kycPaymentBlockedMessage(kycStatus, language));
   if (navigate) {
+    sessionStorage.setItem(PROFILE_FLOW_KEY, "identity");
     navigate("/pa/settings/profile");
+    return;
   }
   openDialog({ name: "verification", stepId: "identity" });
 }
@@ -192,23 +199,11 @@ function KycPaymentBlock({
 }
 
 async function syncUserProfile(dispatch: Dispatch<{ type: "SET_USER_PROFILE"; profile: UserProfile }>): Promise<number> {
-  const [profile, kyc] = await Promise.all([authApi.fetchProfile(), kycApi.fetchKycStatus()]);
-  const kycStatus = kyc.kycStatus ?? profile.kycStatus;
-  dispatch({
-    type: "SET_USER_PROFILE",
-    profile: {
-      email: profile.email,
-      maskedEmail: profile.maskedEmail,
-      kycStatus,
-      kycRejectReason: kyc.rejectReason ?? "",
-    },
-  });
-  return kycStatus;
+  return refreshUserProfile(dispatch);
 }
 
 type HeaderMenu = "balance" | "language" | "help" | "notifications" | "apps" | "profile" | null;
 type DialogState =
-  | { name: "openAccount" }
   | { name: "payment"; flow: "deposit" | "withdrawal"; accountId?: string }
   | { name: "transfer"; accountId?: string }
   | { name: "ticket" }
@@ -222,13 +217,17 @@ type DialogState =
   | { name: "terminate" }
   | { name: "wallet" }
   | { name: "setBalance"; accountId: string }
+  | { name: "trade"; accountId: string }
   | null;
+
+const FUND_ACCOUNT_STORAGE_KEY = "pa.fundAccountId";
 
 type DialogOpener = (dialog: DialogState) => void;
 type Toast = (message: string) => void;
 
 const routeLabels: Record<Route, string> = {
   "/pa/trading/accounts": "My accounts",
+  "/pa/trading/open-account": "Open account",
   "/pa/trading/orderSummary": "Performance",
   "/pa/trading/ordersHistory": "History of orders",
   "/pa/payments-and-wallet/deposit": "Deposit",
@@ -358,6 +357,7 @@ export default function App() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [snackbar, setSnackbar] = useState("");
   const [booting, setBooting] = useState(true);
+  const navigateRef = useRef<(route: Route) => void>(() => undefined);
 
   const toast = (message: string) => setSnackbar(message);
 
@@ -370,7 +370,10 @@ export default function App() {
       }
       try {
         await authApi.fetchProfile();
-        if (!cancelled) setStage("app");
+        if (!cancelled) {
+          setStage("app");
+          writePaPath(resolvePaRoute(), true);
+        }
       } catch {
         clearTokens();
       } finally {
@@ -403,9 +406,16 @@ export default function App() {
         {stage === "login" ? (
           <LoginPage setStage={setStage} openDialog={setDialog} toast={toast} />
         ) : (
-          <AppShell setStage={setStage} openDialog={setDialog} toast={toast} />
+          <AppShell setStage={setStage} openDialog={setDialog} toast={toast} navigateRef={navigateRef} />
         )}
-        <DialogHost dialog={dialog} close={() => setDialog(null)} openDialog={setDialog} toast={toast} setStage={setStage} />
+        <DialogHost
+          dialog={dialog}
+          close={() => setDialog(null)}
+          openDialog={setDialog}
+          toast={toast}
+          setStage={setStage}
+          navigate={(route) => navigateRef.current(route)}
+        />
         <Snackbar open={Boolean(snackbar)} autoHideDuration={4200} onClose={() => setSnackbar("")} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
           <Alert severity="info" variant="filled" onClose={() => setSnackbar("")}>
             {snackbar}
@@ -544,6 +554,8 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
         toast("Account created successfully.");
       }
       setStage("app");
+      const target = resolvePaRoute();
+      writePaPath(target, true);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Authentication failed.");
       void loadCaptcha();
@@ -680,9 +692,36 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
   );
 }
 
-function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) => void; openDialog: DialogOpener; toast: Toast }) {
-  const { dispatch } = usePA();
-  const [route, setRoute] = useState<Route>("/pa/trading/accounts");
+function AppShell({
+  setStage,
+  openDialog,
+  toast,
+  navigateRef,
+}: {
+  setStage: (stage: Stage) => void;
+  openDialog: DialogOpener;
+  toast: Toast;
+  navigateRef: React.MutableRefObject<(route: Route) => void>;
+}) {
+  const { state, dispatch } = usePA();
+  const language = state.settings.language;
+  const kycStatus = state.userProfile?.kycStatus ?? 0;
+  const isNarrow = useMediaQuery("(max-width:960px)");
+
+  function requireKycForRealFund() {
+    promptKycForPayments(kycStatus, openDialog, toast, language, navigate);
+  }
+
+  function openRealFundRoute(accountId: string, fundRoute: "/pa/payments-and-wallet/deposit" | "/pa/payments-and-wallet/withdrawal") {
+    const account = state.accounts.find((item) => item.id === accountId);
+    if (account?.kind === "Real" && !kycAllowsRealFund(kycStatus)) {
+      requireKycForRealFund();
+      return;
+    }
+    sessionStorage.setItem(FUND_ACCOUNT_STORAGE_KEY, accountId);
+    navigate(fundRoute);
+  }
+  const [route, setRoute] = useState<Route>(() => resolvePaRoute());
   const [collapsed, setCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<GroupKey, boolean>>({
     trading: true,
@@ -691,6 +730,16 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
     benefits: false,
     settings: false,
   });
+  const sidebarCollapsed = collapsed || isNarrow;
+  const effectiveOpenGroups: Record<GroupKey, boolean> = isNarrow
+    ? {
+        trading: false,
+        payments: false,
+        analytics: false,
+        benefits: false,
+        settings: false,
+      }
+    : openGroups;
 
   useEffect(() => {
     let cancelled = false;
@@ -706,6 +755,7 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
         dispatch({ type: "SET_TRANSACTIONS", transactions: transactions.list });
       } catch (err) {
         if (!cancelled) {
+          dispatch({ type: "SET_ACCOUNTS", accounts: showcaseAccounts });
           toast(err instanceof Error ? err.message : "Failed to load account data.");
         }
       }
@@ -714,6 +764,23 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
       cancelled = true;
     };
   }, [dispatch, toast]);
+
+  useEffect(() => {
+    if (isNarrow) {
+      setOpenGroups({
+        trading: false,
+        payments: false,
+        analytics: false,
+        benefits: false,
+        settings: false,
+      });
+      return;
+    }
+
+    if (!collapsed) {
+      setOpenGroups(singleOpenGroup(getRouteGroup(route)));
+    }
+  }, [isNarrow, collapsed, route]);
 
   function getRouteGroup(next: Route): GroupKey | null {
     if (next.startsWith("/pa/trading")) return "trading";
@@ -736,8 +803,31 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
 
   function navigate(next: Route) {
     setRoute(next);
-    if (!collapsed) setOpenGroups(singleOpenGroup(getRouteGroup(next)));
+    writePaPath(next);
+    if (!sidebarCollapsed) setOpenGroups(singleOpenGroup(getRouteGroup(next)));
   }
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+  });
+
+  useEffect(() => {
+    const initial = resolvePaRoute();
+    if (readPathname() !== initial) {
+      writePaPath(initial, true);
+    }
+
+    function onPopState() {
+      const path = resolvePaRoute(readPathname());
+      setRoute(path);
+      if (!sidebarCollapsed) {
+        setOpenGroups(singleOpenGroup(getRouteGroup(path)));
+      }
+    }
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [sidebarCollapsed]);
 
   function toggleGroup(group: GroupKey) {
     setOpenGroups((groups) => (groups[group] ? { ...groups, [group]: false } : singleOpenGroup(group)));
@@ -749,25 +839,57 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
   }
 
   return (
-    <div className={`pa-shell ${collapsed ? "is-collapsed" : ""}`}>
-      <Header setStage={setStage} navigate={navigate} openDialog={openDialog} toast={toast} />
+    <div className={`pa-shell ${sidebarCollapsed ? "is-collapsed" : ""}`}>
+      <Header
+        setStage={setStage}
+        navigate={navigate}
+        openDialog={openDialog}
+        toast={toast}
+        kycStatus={kycStatus}
+        onRequireKycForRealFund={requireKycForRealFund}
+      />
       <div className="pa-body">
         <Sidebar
           route={route}
-          collapsed={collapsed}
-          openGroups={openGroups}
+          collapsed={sidebarCollapsed}
+          openGroups={effectiveOpenGroups}
           navigate={navigate}
           setCollapsed={updateCollapsed}
           toggleGroup={toggleGroup}
           openDialog={openDialog}
+          isNarrow={isNarrow}
         />
-        <main className="content">
-          <KycBanner navigate={navigate} openDialog={openDialog} />
-          <section className="content-inner">
-            {route === "/pa/trading/accounts" && <AccountsPage navigate={navigate} openDialog={openDialog} toast={toast} />}
+        <main className={`content${route === "/pa/trading/open-account" ? " is-open-account" : ""}`}>
+          {route !== "/pa/trading/open-account" && <KycBanner navigate={navigate} openDialog={openDialog} />}
+          <section className={`content-inner${route === "/pa/trading/open-account" ? " is-open-account" : ""}`}>
+            {route === "/pa/trading/open-account" && <OpenAccountFlow navigate={navigate} toast={toast} />}
+            {route === "/pa/trading/accounts" && (
+              <AccountsPage
+                navigate={navigate}
+                openDialog={openDialog}
+                toast={toast}
+                kycStatus={kycStatus}
+                onRequireKycForRealFund={requireKycForRealFund}
+                onTrade={(accountId) => openDialog({ name: "trade", accountId })}
+                onDeposit={(accountId) => openRealFundRoute(accountId, "/pa/payments-and-wallet/deposit")}
+                onWithdraw={(accountId) => openRealFundRoute(accountId, "/pa/payments-and-wallet/withdrawal")}
+                onTransfer={(accountId) => openDialog({ name: "transfer", accountId })}
+              />
+            )}
             {route === "/pa/trading/orderSummary" && <PerformancePage />}
             {route === "/pa/trading/ordersHistory" && <OrdersPage toast={toast} />}
-            {route.startsWith("/pa/payments-and-wallet") && <PaymentsPage route={route} navigate={navigate} openDialog={openDialog} toast={toast} />}
+            {route.startsWith("/pa/payments-and-wallet") && route !== "/pa/payments-and-wallet/crypto-wallet" && (
+              <PaymentsPage route={route} navigate={navigate} openDialog={openDialog} toast={toast} />
+            )}
+            {route === "/pa/payments-and-wallet/crypto-wallet" && (
+              <CryptoWalletPage
+                toast={toast}
+                navigate={navigate}
+                openDialog={openDialog}
+                kycStatus={kycStatus}
+                onRequireKycForRealFund={requireKycForRealFund}
+              />
+            )}
             {route === "/pa/analytics/analystViews" && <AnalystViewsRoute openDialog={openDialog} />}
             {route === "/pa/analytics/fxnews" && (
               <Page title="Market News">
@@ -791,12 +913,26 @@ function AppShell({ setStage, openDialog, toast }: { setStage: (stage: Stage) =>
         </main>
       </div>
       <ChatFab />
-      <InstallToast openDialog={openDialog} />
+      <InstallToast toast={toast} />
     </div>
   );
 }
 
-function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: Stage) => void; navigate: (route: Route) => void; openDialog: DialogOpener; toast: Toast }) {
+function Header({
+  setStage,
+  navigate,
+  openDialog,
+  toast,
+  kycStatus,
+  onRequireKycForRealFund,
+}: {
+  setStage: (stage: Stage) => void;
+  navigate: (route: Route) => void;
+  openDialog: DialogOpener;
+  toast: Toast;
+  kycStatus: number;
+  onRequireKycForRealFund: () => void;
+}) {
   const { state, dispatch, totalBalance, unreadNotifications } = usePA();
   const [menu, setMenu] = useState<HeaderMenu>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -861,6 +997,10 @@ function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: S
               variant="contained"
               onClick={() => {
                 close();
+                if (!kycAllowsRealFund(kycStatus)) {
+                  onRequireKycForRealFund();
+                  return;
+                }
                 navigate("/pa/payments-and-wallet/deposit");
               }}
             >
@@ -871,6 +1011,10 @@ function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: S
               variant="outlined"
               onClick={() => {
                 close();
+                if (!kycAllowsRealFund(kycStatus)) {
+                  onRequireKycForRealFund();
+                  return;
+                }
                 navigate("/pa/payments-and-wallet/withdrawal");
               }}
             >
@@ -982,6 +1126,7 @@ function Header({ setStage, navigate, openDialog, toast }: { setStage: (stage: S
             close();
             void authApi.logout().finally(() => {
               clearTokens();
+              writeAppRoot(true);
               setStage("login");
               toast("Signed out.");
             });
@@ -1003,6 +1148,7 @@ function Sidebar({
   setCollapsed,
   toggleGroup,
   openDialog,
+  isNarrow,
 }: {
   route: Route;
   collapsed: boolean;
@@ -1011,6 +1157,7 @@ function Sidebar({
   setCollapsed: (value: boolean) => void;
   toggleGroup: (group: GroupKey) => void;
   openDialog: DialogOpener;
+  isNarrow: boolean;
 }) {
   const width = collapsed ? 56 : 280;
   const drawerWidth = { xs: 56, md: width };
@@ -1073,7 +1220,13 @@ function Sidebar({
           <Gift size={18} />
           {!collapsed && <span>Refer traders, earn commission</span>}
         </button>
-        <button className="collapse-button" type="button" onClick={() => setCollapsed(!collapsed)} aria-label="Collapse sidebar">
+        <button
+          className="collapse-button"
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          aria-label="Collapse sidebar"
+          disabled={isNarrow}
+        >
           {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
         </button>
       </div>
@@ -1112,7 +1265,7 @@ function SideGroup({
   }
 
   return (
-    <>
+    <div className="sidebar-group">
       <ListItemButton onClick={handleGroupClick} selected={groupSelected}>
         <ListItemIcon>
           <Icon size={18} />
@@ -1120,8 +1273,8 @@ function SideGroup({
         {!collapsed && <ListItemText primary={group.label} />}
         {!collapsed && <ChevronDown className={`chevron ${open ? "is-open" : ""}`} size={16} />}
       </ListItemButton>
-      <Collapse in={open && !collapsed} timeout={180} unmountOnExit>
-        <MuiList className="sidebar-children">
+      {open && !collapsed ? (
+        <MuiList className="sidebar-children" disablePadding>
           {group.children.map((child) => (
             <ListItemButton
               key={`${child.label}-${child.route}`}
@@ -1135,8 +1288,8 @@ function SideGroup({
             </ListItemButton>
           ))}
         </MuiList>
-      </Collapse>
-    </>
+      ) : null}
+    </div>
   );
 }
 
@@ -1186,158 +1339,13 @@ function KycBanner({ navigate, openDialog }: { navigate: (route: Route) => void;
       <Button
         variant="contained"
         onClick={() => {
+          sessionStorage.setItem(PROFILE_FLOW_KEY, "identity");
           navigate("/pa/settings/profile");
-          openDialog({ name: "verification", stepId: "identity" });
         }}
       >
         Complete
       </Button>
     </div>
-  );
-}
-
-function AccountsPage({ navigate, openDialog, toast }: { navigate: (route: Route) => void; openDialog: DialogOpener; toast: Toast }) {
-  const { state } = usePA();
-  const language = state.settings.language;
-  const kycStatus = state.userProfile?.kycStatus ?? 0;
-  const [kind, setKind] = useState<AccountKind>("Real");
-  const [sort, setSort] = useState<AccountSort>("newest");
-  const [view, setView] = useState<"list" | "grid">("list");
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [menuAccount, setMenuAccount] = useState<Account | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
-
-  const accounts = useMemo(() => {
-    return sortAccounts(
-      state.accounts.filter((account) => account.status === "Active" && account.kind === kind),
-      sort,
-    );
-  }, [state.accounts, kind, sort]);
-
-  return (
-    <Page title="My accounts" actions={<Button variant="contained" startIcon={<Plus size={16} />} onClick={() => openDialog({ name: "openAccount" })}>Open account</Button>}>
-      <div className="toolbar">
-        <ToggleButtonGroup exclusive value={kind} onChange={(_, value: AccountKind | null) => value && setKind(value)}>
-          <ToggleButton value="Real">Real</ToggleButton>
-          <ToggleButton value="Demo">Demo</ToggleButton>
-        </ToggleButtonGroup>
-        <AccountSortSelect value={sort} onChange={setSort} />
-        <ToggleButtonGroup exclusive value={view} onChange={(_, value: "list" | "grid" | null) => value && setView(value)} className="view-toggle">
-          <ToggleButton value="list" aria-label="List view">
-            <List size={16} />
-          </ToggleButton>
-          <ToggleButton value="grid" aria-label="Grid view">
-            <LayoutGrid size={16} />
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </div>
-      {accounts.length === 0 ? (
-        <EmptyState icon={Wallet} title={`No ${kind.toLowerCase()} accounts`} text="Open an account to see it here." action={<Button variant="contained" onClick={() => openDialog({ name: "openAccount" })}>Open account</Button>} />
-      ) : (
-        <div className={`account-list ${view === "grid" ? "is-grid" : ""}`}>
-          {accounts.map((account) => (
-            <Card key={account.id} className="account-card">
-              <CardContent>
-                <div className="account-head">
-                  <div>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                      <Chip size="small" label={account.kind} />
-                      <strong>
-                        {account.platform} {account.type}
-                      </strong>
-                    </Stack>
-                    <button className="copy-line" type="button" onClick={() => copyToClipboard(account.login, toast)}>
-                      # {account.login} <Copy size={14} />
-                    </button>
-                  </div>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexShrink: 0 }}>
-                    {account.kind === "Demo" && (
-                      <Button
-                        variant="outlined"
-                        color="inherit"
-                        className="set-balance-button"
-                        startIcon={<ArrowDownCircle size={16} />}
-                        onClick={() => openDialog({ name: "setBalance", accountId: account.id })}
-                      >
-                        Set balance
-                      </Button>
-                    )}
-                    <IconButton
-                      aria-label="Account actions"
-                      onClick={(event) => {
-                        setMenuAccount(account);
-                        setMenuAnchor(event.currentTarget);
-                      }}
-                    >
-                      <MoreVertical size={18} />
-                    </IconButton>
-                  </Stack>
-                </div>
-                <div className="account-balance">
-                  <span>{account.nickname}</span>
-                  <strong>{formatMoney(account.balance, account.currency)}</strong>
-                </div>
-                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
-                  <Button variant="contained" onClick={() => openDialog({ name: "external", title: "Trade", body: `Exness Terminal would open ${account.nickname} #${account.login}.` })}>
-                    Trade
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    disabled={!canFundAccount(account.kind, kycStatus)}
-                    onClick={() => {
-                      if (!canFundAccount(account.kind, kycStatus)) {
-                        promptKycForPayments(kycStatus, openDialog, toast, language, navigate);
-                        return;
-                      }
-                      openDialog({ name: "payment", flow: "deposit", accountId: account.id });
-                    }}
-                  >
-                    Deposit
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    disabled={!canFundAccount(account.kind, kycStatus)}
-                    onClick={() => {
-                      if (!canFundAccount(account.kind, kycStatus)) {
-                        promptKycForPayments(kycStatus, openDialog, toast, language, navigate);
-                        return;
-                      }
-                      openDialog({ name: "payment", flow: "withdrawal", accountId: account.id });
-                    }}
-                  >
-                    Withdraw
-                  </Button>
-                  <Button variant="outlined" onClick={() => openDialog({ name: "transfer", accountId: account.id })}>
-                    Transfer
-                  </Button>
-                </Stack>
-                <Button color="inherit" endIcon={<ChevronDown className={`chevron ${expanded === account.id ? "is-open" : ""}`} size={16} />} onClick={() => setExpanded(expanded === account.id ? null : account.id)}>
-                  Account details
-                </Button>
-                <Collapse in={expanded === account.id} timeout={180}>
-                  <div className="account-details">
-                    <Info label="Server" value={account.server} onCopy={() => copyToClipboard(account.server, toast)} />
-                    <Info label="Leverage" value={account.leverage} />
-                    <Info label="Equity" value={formatMoney(account.equity, account.currency)} />
-                    <Info label="Free margin" value={formatMoney(account.freeMargin, account.currency)} />
-                    <Info label="Margin" value={formatMoney(account.margin, account.currency)} />
-                  </div>
-                </Collapse>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
-        <MenuItem onClick={() => { if (menuAccount) openDialog({ name: "accountInfo", accountId: menuAccount.id }); setMenuAnchor(null); }}>Account information</MenuItem>
-        <MenuItem onClick={() => { if (menuAccount) openDialog({ name: "leverage", accountId: menuAccount.id }); setMenuAnchor(null); }}>Change leverage</MenuItem>
-        <MenuItem onClick={() => { if (menuAccount) openDialog({ name: "rename", accountId: menuAccount.id }); setMenuAnchor(null); }}>Rename account</MenuItem>
-        <MenuItem onClick={() => { toast("Read-only access password generated locally."); setMenuAnchor(null); }}>Set read-only access</MenuItem>
-        <MenuItem onClick={() => { if (menuAccount) openDialog({ name: "password", accountId: menuAccount.id }); setMenuAnchor(null); }}>Change trading password</MenuItem>
-        <MenuItem onClick={() => { toast("Statement prepared locally."); navigate("/pa/trading/ordersHistory"); setMenuAnchor(null); }}>Account statement</MenuItem>
-        <MenuItem onClick={() => { if (menuAccount) openDialog({ name: "external", title: "Archive account", body: `Archive ${menuAccount.nickname} from account information dialog if no open orders remain.` }); setMenuAnchor(null); }}>Archive account</MenuItem>
-      </Menu>
-    </Page>
   );
 }
 
@@ -1375,7 +1383,7 @@ function OrdersPage({ toast }: { toast: Toast }) {
   );
 }
 
-function PaymentsNoActiveAccounts({ openDialog }: { openDialog: DialogOpener }) {
+function PaymentsNoActiveAccounts({ navigate }: { navigate: (route: Route) => void }) {
   return (
     <div className="payments-no-active">
       <CircleHelp size={48} strokeWidth={1.5} className="payments-no-active-icon" aria-hidden />
@@ -1386,7 +1394,7 @@ function PaymentsNoActiveAccounts({ openDialog }: { openDialog: DialogOpener }) 
         <Typography color="text.secondary">Only real accounts can be used for trading.</Typography>
         <Typography color="text.secondary">Create an account to start depositing and withdrawing.</Typography>
       </Stack>
-      <Button variant="contained" onClick={() => openDialog({ name: "openAccount" })}>
+      <Button variant="contained" onClick={() => navigate("/pa/trading/open-account")}>
         Create new account
       </Button>
     </div>
@@ -1397,15 +1405,26 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
   const { state, dispatch } = usePA();
   const language = state.settings.language;
   const kycStatus = state.userProfile?.kycStatus ?? 0;
-  const [accountId, setAccountId] = useState(() => pickDefaultFundAccountId(state.accounts, kycStatus));
+  const [accountId, setAccountId] = useState(() => {
+    const stored = sessionStorage.getItem(FUND_ACCOUNT_STORAGE_KEY);
+    if (stored && state.accounts.some((account) => account.id === stored && account.status === "Active")) {
+      sessionStorage.removeItem(FUND_ACCOUNT_STORAGE_KEY);
+      return stored;
+    }
+    return pickDefaultFundAccountId(state.accounts, kycStatus);
+  });
   const [transactionFilters, setTransactionFilters] = useState<TransactionHistoryFilters>(defaultTransactionHistoryFilters);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const flow = route.includes("withdrawal") ? "withdrawal" : "deposit";
 
   useEffect(() => {
-    const active = state.accounts.filter((account) => account.status === "Active");
-    if (!active.some((account) => account.id === accountId)) {
+    const realActive = state.accounts.filter((account) => account.status === "Active" && account.kind === "Real");
+    const current = state.accounts.find((account) => account.id === accountId);
+    if (!current || current.kind !== "Real" || current.status !== "Active") {
       setAccountId(pickDefaultFundAccountId(state.accounts, kycStatus));
+    }
+    if (realActive.length === 0 && accountId) {
+      setAccountId("");
     }
   }, [state.accounts, kycStatus, accountId]);
 
@@ -1472,42 +1491,18 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
     );
   }
 
-  if (route.endsWith("/crypto-wallet")) {
-    return (
-      <Page title="Crypto wallet" actions={<Button variant="contained" startIcon={<Plus size={16} />} onClick={() => openDialog({ name: "wallet" })}>Create wallet</Button>}>
-        <div className="wallet-grid">
-          {state.wallets.map((wallet) => (
-            <Card key={wallet.id}>
-              <CardContent>
-                <Stack direction="row" sx={{ justifyContent: "space-between" }}>
-                  <Typography variant="h3">{wallet.asset}</Typography>
-                  <Chip label={wallet.status} />
-                </Stack>
-                <Typography color="text.secondary">{wallet.network}</Typography>
-                <Typography variant="h2">{wallet.balance.toFixed(2)}</Typography>
-                <button className="copy-line" type="button" onClick={() => copyToClipboard(wallet.address, toast)}>
-                  {wallet.address} <Copy size={14} />
-                </button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </Page>
-    );
-  }
-
-  const activeAccounts = state.accounts.filter((account) => account.status === "Active");
-  if (activeAccounts.length === 0) {
+  const realActiveAccounts = state.accounts.filter((account) => account.status === "Active" && account.kind === "Real");
+  if (realActiveAccounts.length === 0) {
     return (
       <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
-        <PaymentsNoActiveAccounts openDialog={openDialog} />
+        <PaymentsNoActiveAccounts navigate={navigate} />
       </Page>
     );
   }
 
   const methods = paymentMethods.filter((method) => method.flow === flow);
   const selectedAccount = state.accounts.find((account) => account.id === accountId);
-  const fundBlocked = selectedAccount ? !canFundAccount(selectedAccount.kind, kycStatus) : false;
+  const fundBlocked = !kycAllowsRealFund(kycStatus);
   return (
     <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
       <div className="payment-layout">
@@ -1517,7 +1512,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
             <InputLabel>Trading account</InputLabel>
             <Select value={accountId} label="Trading account" onChange={(event) => setAccountId(event.target.value)}>
               {state.accounts
-                .filter((account) => account.status === "Active")
+                .filter((account) => account.status === "Active" && account.kind === "Real")
                 .map((account) => (
                   <MenuItem key={account.id} value={account.id}>
                     {getAccountName(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}
@@ -1559,73 +1554,6 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
         </Stack>
       </div>
     </Page>
-  );
-}
-
-function InsightPage({ kind }: { kind: "analyst" | "news" }) {
-  const { state } = usePA();
-  const data = kind === "analyst" ? state.insights : state.news;
-  const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState(data[0]?.id ?? "");
-  const [sentiment, setSentiment] = useState("All");
-  const rows = data.filter((item) => {
-    const text = `${item.title} ${item.summary} ${item.symbol}`.toLowerCase();
-    return text.includes(query.toLowerCase()) && (sentiment === "All" || item.sentiment === sentiment);
-  });
-  const selected = rows.find((item) => item.id === selectedId) ?? rows[0];
-
-  return (
-    <Page title={kind === "analyst" ? "Analyst Views" : "Market News"}>
-      <div className="toolbar">
-        <TextField
-          size="small"
-          placeholder="Search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment> } }}
-        />
-        <ToggleButtonGroup exclusive value={sentiment} onChange={(_, value: string | null) => value && setSentiment(value)}>
-          <ToggleButton value="All">All</ToggleButton>
-          <ToggleButton value="Bullish">Bullish</ToggleButton>
-          <ToggleButton value="Bearish">Bearish</ToggleButton>
-          <ToggleButton value="Neutral">Neutral</ToggleButton>
-        </ToggleButtonGroup>
-      </div>
-      <div className="insight-layout">
-        <div className="insight-list">
-          {rows.map((item) => (
-            <button className={`insight-row ${selected?.id === item.id ? "is-active" : ""}`} key={item.id} type="button" onClick={() => setSelectedId(item.id)}>
-              <span>{item.source}</span>
-              <strong>{item.title}</strong>
-              <small>{item.symbol} · {item.sentiment} · {formatDate(item.publishedAt)}</small>
-            </button>
-          ))}
-        </div>
-        {selected ? <InsightDetail item={selected} /> : <EmptyState icon={Newspaper} title="No articles" text="Try another filter." />}
-      </div>
-    </Page>
-  );
-}
-
-function InsightDetail({ item }: { item: Insight }) {
-  const [bookmarked, setBookmarked] = useState(false);
-  return (
-    <Paper className="insight-detail">
-        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <Typography color="text.secondary">{item.source}</Typography>
-          <Typography variant="h2">{item.title}</Typography>
-        </div>
-        <IconButton onClick={() => setBookmarked(!bookmarked)} aria-label="Bookmark">
-          <Star size={18} fill={bookmarked ? "#ffde02" : "none"} />
-        </IconButton>
-      </Stack>
-      <Typography>{item.body}</Typography>
-      <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-        {item.tags.map((tag) => <Chip key={tag} label={tag} />)}
-        <Chip label={item.sentiment} color={item.sentiment === "Bullish" ? "success" : item.sentiment === "Bearish" ? "error" : "default"} />
-      </Stack>
-    </Paper>
   );
 }
 
@@ -1960,63 +1888,31 @@ function SettingsPage({ route, openDialog, toast }: { route: Route; openDialog: 
     );
   }
 
-  return (
-    <Page title="Profile">
-      <Card className="profile-page-card">
-        <CardContent className="settings-stack">
-          <div className="profile-status-head">
-            <div>
-              <Typography variant="h3">Account Status</Typography>
-              <Typography color="text.secondary">{kycStatusLabel(state.userProfile?.kycStatus ?? 0, language)}</Typography>
-            </div>
-            <Chip
-              color={verificationComplete ? "success" : state.userProfile?.kycStatus === 3 ? "error" : "warning"}
-              label={kycStatusLabel(state.userProfile?.kycStatus ?? 0, language)}
-            />
-          </div>
-          {state.userProfile?.kycStatus === 3 && state.userProfile.kycRejectReason ? (
-            <Alert severity="error">Rejected: {state.userProfile.kycRejectReason}</Alert>
-          ) : null}
-          {state.verification.map((step, index) => (
-            <Accordion key={step.id} className="profile-kyc-step" defaultExpanded={index === 0 || step.status !== "Completed"}>
-              <AccordionSummary expandIcon={<ChevronDown size={18} />}>
-                <div className="verification-step-summary">
-                  <ShieldCheck size={18} />
-                  <Typography component="span" sx={{ flex: 1 }}>{step.title}</Typography>
-                  <Chip size="small" label={verificationStatusLabel(step.status, language)} />
-                </div>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Typography>{step.description}</Typography>
-                <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", my: 2 }}>
-                  {step.fields.map((field) => <Chip key={field} label={field} />)}
-                </Stack>
-                <Button
-                  variant="contained"
-                  disabled={
-                    step.status === "Completed"
-                    || (step.id === "identity" && kycIdentityLocked(state.userProfile?.kycStatus ?? 0))
-                  }
-                  onClick={() => openDialog({ name: "verification", stepId: step.id })}
-                >
-                  {step.status === "Completed" || (step.id === "identity" && state.userProfile?.kycStatus === 2)
-                    ? "Completed"
-                    : step.id === "identity" && state.userProfile?.kycStatus === 1
-                      ? "审核中"
-                      : "Complete now"}
-                </Button>
-              </AccordionDetails>
-            </Accordion>
-          ))}
-        </CardContent>
-      </Card>
-    </Page>
-  );
+  return <ProfilePage toast={toast} />;
 }
 
-function DialogHost({ dialog, close, openDialog, toast, setStage }: { dialog: DialogState; close: () => void; openDialog: DialogOpener; toast: Toast; setStage: (stage: Stage) => void }) {
+function DialogHost({
+  dialog,
+  close,
+  openDialog,
+  toast,
+  setStage,
+  navigate,
+}: {
+  dialog: DialogState;
+  close: () => void;
+  openDialog: DialogOpener;
+  toast: Toast;
+  setStage: (stage: Stage) => void;
+  navigate: (route: Route) => void;
+}) {
+  const { state } = usePA();
   if (!dialog) return null;
-  if (dialog.name === "openAccount") return <OpenAccountDialog close={close} toast={toast} />;
+  if (dialog.name === "trade") {
+    const account = state.accounts.find((item) => item.id === dialog.accountId);
+    if (!account) return null;
+    return <TradeDialog account={account} close={close} toast={toast} navigate={navigate} />;
+  }
   if (dialog.name === "payment") return <PaymentFlowDialog flow={dialog.flow} accountId={dialog.accountId} close={close} openDialog={openDialog} toast={toast} />;
   if (dialog.name === "transfer") return <TransferDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "ticket") return <TicketDialog close={close} toast={toast} />;
@@ -2032,81 +1928,11 @@ function DialogHost({ dialog, close, openDialog, toast, setStage }: { dialog: Di
   return <ConfirmDialog title={dialog.title} body={dialog.body} close={close} confirmLabel="Got it" onConfirm={() => undefined} />;
 }
 
-function OpenAccountDialog({ close, toast }: { close: () => void; toast: Toast }) {
-  const { dispatch } = usePA();
-  const [kind, setKind] = useState<AccountKind>("Real");
-  const [platform, setPlatform] = useState<AccountPlatform>("MT5");
-  const [type, setType] = useState("Standard");
-  const [leverage, setLeverage] = useState("1:2000");
-  const [balance, setBalance] = useState(kind === "Demo" ? 10000 : 0);
-
-  function submit() {
-    dispatch({
-      type: "ADD_ACCOUNT",
-      payload: {
-        kind,
-        platform,
-        type,
-        nickname: type,
-        server: kind === "Real" ? "Exness-MT5Real11" : "Exness-MT5Trial7",
-        currency: "USD",
-        balance,
-        equity: balance,
-        margin: 0,
-        freeMargin: balance,
-        leverage,
-      },
-    });
-    toast("Trading account created.");
-    close();
-  }
-
-  return (
-    <Dialog open onClose={close} fullWidth maxWidth="sm">
-      <DialogTitle>Open account</DialogTitle>
-      <DialogContent className="dialog-grid">
-        <ToggleButtonGroup exclusive value={kind} onChange={(_, value: AccountKind | null) => { if (value) { setKind(value); setBalance(value === "Demo" ? 10000 : 0); } }}>
-          <ToggleButton value="Real">Real</ToggleButton>
-          <ToggleButton value="Demo">Demo</ToggleButton>
-        </ToggleButtonGroup>
-        <FormControl fullWidth>
-          <InputLabel>Platform</InputLabel>
-          <Select value={platform} label="Platform" onChange={(event) => setPlatform(event.target.value as AccountPlatform)}>
-            <MenuItem value="MT5">MT5</MenuItem>
-            <MenuItem value="MT4">MT4</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl fullWidth>
-          <InputLabel>Account type</InputLabel>
-          <Select value={type} label="Account type" onChange={(event) => setType(event.target.value)}>
-            <MenuItem value="Standard">Standard</MenuItem>
-            <MenuItem value="Raw Spread">Raw Spread</MenuItem>
-            <MenuItem value="Pro">Pro</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl fullWidth>
-          <InputLabel>Leverage</InputLabel>
-          <Select value={leverage} label="Leverage" onChange={(event) => setLeverage(event.target.value)}>
-            <MenuItem value="1:200">1:200</MenuItem>
-            <MenuItem value="1:1000">1:1000</MenuItem>
-            <MenuItem value="1:2000">1:2000</MenuItem>
-          </Select>
-        </FormControl>
-        <TextField type="number" label={kind === "Demo" ? "Demo balance" : "Opening balance"} value={balance} onChange={(event) => setBalance(Number(event.target.value))} />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" onClick={submit}>Open account</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
 function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow: "deposit" | "withdrawal"; accountId?: string; close: () => void; openDialog: DialogOpener; toast: Toast }) {
   const { state, dispatch } = usePA();
   const language = state.settings.language;
   const kycStatus = state.userProfile?.kycStatus ?? 0;
-  const fundAccounts = state.accounts.filter((account) => account.status === "Active");
+  const fundAccounts = state.accounts.filter((account) => account.status === "Active" && account.kind === "Real");
   const [activeStep, setActiveStep] = useState(0);
   const [selectedAccount, setSelectedAccount] = useState(() => {
     if (accountId && fundAccounts.some((item) => item.id === accountId)) {
@@ -2315,9 +2141,6 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
         {!isDemo && flow === "withdrawal" ? (
           <Alert severity="info">Real 账户出金需 KYC 通过且后台人工审核，提交后不会即时到账。</Alert>
         ) : null}
-        {isDemo && flow === "withdrawal" ? (
-          <Alert severity="info">Demo 模拟账户出金免 KYC，与 Real 账户审核互不影响。</Alert>
-        ) : null}
         <Stepper activeStep={activeStep} alternativeLabel>
           {steps.map((label) => (
             <Step key={label}><StepLabel>{label}</StepLabel></Step>
@@ -2431,16 +2254,23 @@ function TransferDialog({ accountId, close, toast }: { accountId?: string; close
   const accounts = state.accounts.filter((account) => account.status === "Active");
   const [from, setFrom] = useState(accountId ?? accounts[0]?.id ?? "");
   const [to, setTo] = useState(accounts.find((account) => account.id !== from)?.id ?? "");
-  const [amount, setAmount] = useState(25);
+  const [amountText, setAmountText] = useState("25");
+
+  const amount = parseFundAmount(amountText);
+  const amountValid = Number.isFinite(amount) && amount >= 0;
 
   function finish() {
+    const submitAmount = roundFundAmount(amount);
+    if (!Number.isFinite(submitAmount) || submitAmount < 0) {
+      return;
+    }
     dispatch({
       type: "ADD_TRANSACTION",
       payload: {
         type: "transfer",
         accountId: from,
         targetAccountId: to,
-        amount,
+        amount: submitAmount,
         currency: "USD",
         fee: "0%",
       },
@@ -2465,11 +2295,24 @@ function TransferDialog({ accountId, close, toast }: { accountId?: string; close
             {accounts.filter((account) => account.id !== from).map((account) => <MenuItem key={account.id} value={account.id}>{getAccountName(state.accounts, account.id)}</MenuItem>)}
           </Select>
         </FormControl>
-        <TextField label="Amount" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
+        <TextField
+          label="Amount"
+          type="text"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={amountText}
+          onChange={(event) => setAmountText(normalizeAmountInput(event.target.value))}
+          onBlur={() => {
+            const parsed = parseFundAmount(amountText);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+              setAmountText(parsed === 0 ? "0" : formatFundAmountText(parsed));
+            }
+          }}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" disabled={!from || !to || from === to || amount <= 0} onClick={finish}>Transfer</Button>
+        <Button variant="contained" disabled={!from || !to || from === to || !amountValid} onClick={finish}>Transfer</Button>
       </DialogActions>
     </Dialog>
   );
@@ -2569,7 +2412,7 @@ function VerificationDialog({ stepId, close, toast }: { stepId?: string; close: 
       return;
     }
     dispatch({ type: "COMPLETE_VERIFICATION", stepId: step.id, values });
-    toast(`${step.title} saved locally.`);
+    toast("验证信息已保存。");
     close();
   }
 
@@ -2689,8 +2532,8 @@ function SetBalanceDialog({ accountId, close, toast }: { accountId: string; clos
   const account = state.accounts.find((item) => item.id === accountId);
   const [amountText, setAmountText] = useState(account ? String(account.balance) : "");
   const [submitting, setSubmitting] = useState(false);
-
   if (!account) return null;
+  const acc = account;
 
   async function submit() {
     const amount = parseFundAmount(amountText);
@@ -2698,21 +2541,19 @@ function SetBalanceDialog({ accountId, close, toast }: { accountId: string; clos
       toast("Enter a valid amount.");
       return;
     }
-
     setSubmitting(true);
     try {
-      await fundApi.setDemoAccountBalance({
+      const updated = await fundApi.setDemoAccountBalance({
         accountId,
         amount,
-        currency: account.currency,
+        currency: acc.currency,
       });
-      dispatch({ type: "SET_DEMO_BALANCE", accountId, amount });
+      const accounts = state.accounts.map((item) => (item.id === accountId ? updated : item));
+      dispatch({ type: "SET_ACCOUNTS", accounts });
       toast("Demo account balance updated.");
       close();
     } catch (err) {
-      dispatch({ type: "SET_DEMO_BALANCE", accountId, amount });
-      toast(err instanceof Error ? err.message : "Balance updated locally.");
-      close();
+      toast(err instanceof Error ? err.message : "Failed to set demo balance.");
     } finally {
       setSubmitting(false);
     }
@@ -2745,8 +2586,8 @@ function SetBalanceDialog({ accountId, close, toast }: { accountId: string; clos
             },
           }}
         />
-        <Button variant="contained" fullWidth disabled={submitting} onClick={() => void submit()}>
-          {submitting ? "Setting..." : "Set balance"}
+        <Button variant="contained" fullWidth className="set-balance-submit" disabled={submitting} onClick={() => void submit()}>
+          {submitting ? "Saving..." : "Set balance"}
         </Button>
       </DialogContent>
     </Dialog>
@@ -3015,19 +2856,28 @@ function ChatFab() {
   );
 }
 
-function InstallToast({ openDialog }: { openDialog: DialogOpener }) {
+function InstallToast({ toast }: { toast: Toast }) {
   const { state, dispatch } = usePA();
   if (!state.settings.installToastVisible) return null;
   return (
-    <Paper className="install-toast">
-      <button className="install-main" type="button" onClick={() => openDialog({ name: "external", title: "Download the Exness mobile app", body: "The mobile app shortcut is represented locally. The real site opens app installation instructions." })}>
-        <AppWindow size={18} />
-        <span>Download the Exness mobile app and trade while you're on the go</span>
+    <div className="install-toast">
+      <button
+        className="install-main"
+        type="button"
+        onClick={() => toast("成功")}
+      >
+        <span className="install-toast-icon" aria-hidden="true">ex</span>
+        <span className="install-toast-text">将 Exness 应用程序需添加到主屏幕</span>
       </button>
-      <IconButton onClick={() => dispatch({ type: "DISMISS_INSTALL_TOAST" })} aria-label="Dismiss install prompt">
-        <X size={16} />
-      </IconButton>
-    </Paper>
+      <button
+        className="install-toast-close"
+        type="button"
+        onClick={() => dispatch({ type: "DISMISS_INSTALL_TOAST" })}
+        aria-label="关闭"
+      >
+        <X size={18} strokeWidth={1.75} />
+      </button>
+    </div>
   );
 }
 

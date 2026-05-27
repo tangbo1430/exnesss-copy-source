@@ -46,7 +46,7 @@ export function createWithdraw(body: {
   });
 }
 
-/** 为模拟账户设置余额（接口预留，后端就绪后可直接对接） */
+/** 为 Demo 账户设置余额（非充提流程） */
 export function setDemoAccountBalance(body: {
   accountId: string;
   amount: number;

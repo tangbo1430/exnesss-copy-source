@@ -22,6 +22,7 @@ type Action =
   | { type: "CHANGE_LEVERAGE"; accountId: string; leverage: string }
   | { type: "SET_DEMO_BALANCE"; accountId: string; amount: number }
   | { type: "ARCHIVE_ACCOUNT"; accountId: string }
+  | { type: "RESTORE_ACCOUNT"; accountId: string }
   | { type: "ADD_TRANSACTION"; payload: Omit<Transaction, "id" | "createdAt" | "reference" | "status"> }
   | { type: "ADD_TICKET"; payload: Omit<Ticket, "id" | "createdAt" | "updatedAt" | "status" | "priority"> }
   | { type: "ADD_WALLET"; payload: Omit<WalletItem, "id" | "address" | "balance" | "status"> }
@@ -142,7 +143,18 @@ function reducer(state: PAState, action: Action): PAState {
       return {
         ...state,
         accounts: state.accounts.map((account) =>
-          account.id === action.accountId ? { ...account, status: "Archived" } : account,
+          account.id === action.accountId
+            ? { ...account, status: "Archived", archivedAt: new Date().toISOString() }
+            : account,
+        ),
+      };
+    case "RESTORE_ACCOUNT":
+      return {
+        ...state,
+        accounts: state.accounts.map((account) =>
+          account.id === action.accountId
+            ? { ...account, status: "Active", archivedAt: undefined }
+            : account,
         ),
       };
     case "ADD_TRANSACTION": {

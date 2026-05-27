@@ -2,6 +2,7 @@ export type Stage = "login" | "app";
 
 export type Route =
   | "/pa/trading/accounts"
+  | "/pa/trading/open-account"
   | "/pa/trading/orderSummary"
   | "/pa/trading/ordersHistory"
   | "/pa/payments-and-wallet/deposit"
@@ -42,6 +43,7 @@ export interface Account {
   freeMargin: number;
   leverage: string;
   status: "Active" | "Archived";
+  archivedAt?: string;
   createdAt: string;
 }
 
@@ -181,6 +183,9 @@ export interface PaSettings {
 export interface UserProfile {
   email: string;
   maskedEmail: string;
+  phone: string;
+  maskedPhone: string;
+  phoneVerified: boolean;
   kycStatus: number;
   kycRejectReason: string;
 }

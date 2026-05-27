@@ -49,6 +49,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   if (json.code !== 1) {
     const hints: Record<number, string> = {
       40007: "登录尝试次数过多，请 30 分钟后再试",
+      41001: "请先完成身份验证并通过审核",
+      41002: "已有身份验证申请正在审核中",
+      41003: "证件图片无效，请上传 JPG 或 PNG",
+      41004: "身份证正反面不能为同一张图片",
+      40011: "手机号码格式无效",
     };
     throw new Error(hints[json.code] ?? json.msg ?? `API error ${json.code}`);
   }
