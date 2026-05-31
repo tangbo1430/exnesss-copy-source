@@ -27,7 +27,7 @@ export const accounts: Account[] = [
     equity: 0,
     margin: 0,
     freeMargin: 0,
-    leverage: "1:2000",
+    leverage: "1:200",
     status: "Active",
     createdAt: "2026-05-20T08:00:00.000Z",
   },

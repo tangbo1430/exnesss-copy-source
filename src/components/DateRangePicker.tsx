@@ -1,5 +1,5 @@
-import { useMemo, useState, type MouseEvent } from "react";
-import { Button, IconButton, Popover, Typography } from "@mui/material";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Button, IconButton, Popover, Typography, type PopoverOrigin } from "@mui/material";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { usePA } from "../state/paStore";
 import { translateText } from "../i18n";
@@ -24,8 +24,8 @@ function cloneRange(value: DateRangeValue): DateRangeValue {
   };
 }
 
-function formatRangeLabel(range: DateRangeValue, endLabel: string) {
-  if (!range.start) return "All time";
+function formatRangeLabel(range: DateRangeValue, endLabel: string, allTimeLabel: string) {
+  if (!range.start) return allTimeLabel;
   const startLabel = formatPickerDateNumeric(range.start);
   if (!range.end) return `${startLabel} - ${endLabel}`;
   return `${startLabel} - ${formatPickerDateNumeric(range.end)}`;
@@ -41,9 +41,21 @@ function formatDraftHeading(range: DateRangeValue, endLabel: string, allTimeLabe
 export function DateRangePicker({
   value,
   onChange,
+  open: openProp,
+  anchorEl: anchorElProp,
+  hideTrigger = false,
+  onClose,
+  anchorOrigin = { vertical: "bottom", horizontal: "left" },
+  transformOrigin = { vertical: "top", horizontal: "left" },
 }: {
   value: DateRangeValue;
   onChange: (value: DateRangeValue) => void;
+  open?: boolean;
+  anchorEl?: HTMLElement | null;
+  hideTrigger?: boolean;
+  onClose?: () => void;
+  anchorOrigin?: PopoverOrigin;
+  transformOrigin?: PopoverOrigin;
 }) {
   const { state } = usePA();
   const language = state.settings.language;
@@ -51,11 +63,19 @@ export function DateRangePicker({
   const endLabel = t("End");
   const allTimeLabel = t("All time");
 
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [internalAnchor, setInternalAnchor] = useState<HTMLElement | null>(null);
+  const anchorEl = anchorElProp ?? internalAnchor;
+  const open = openProp ?? Boolean(internalAnchor);
+  const today = useMemo(() => startOfDay(new Date()), []);
+
   const [draft, setDraft] = useState<DateRangeValue>(() => cloneRange(value));
   const [visibleMonth, setVisibleMonth] = useState(() => startOfDay(value.start ?? new Date()));
-  const open = Boolean(anchor);
-  const today = useMemo(() => startOfDay(new Date()), []);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(cloneRange(value));
+    setVisibleMonth(startOfDay(value.start ?? new Date()));
+  }, [open, value]);
 
   const cells = useMemo(
     () => getCalendarCells(visibleMonth.getFullYear(), visibleMonth.getMonth()),
@@ -65,11 +85,14 @@ export function DateRangePicker({
   function openPicker(event: MouseEvent<HTMLElement>) {
     setDraft(cloneRange(value));
     setVisibleMonth(startOfDay(value.start ?? new Date()));
-    setAnchor(event.currentTarget);
+    setInternalAnchor(event.currentTarget);
   }
 
   function closePicker() {
-    setAnchor(null);
+    if (openProp === undefined) {
+      setInternalAnchor(null);
+    }
+    onClose?.();
   }
 
   function clearRange(event: MouseEvent) {
@@ -139,47 +162,49 @@ export function DateRangePicker({
     return classes.join(" ");
   }
 
-  const triggerLabel = formatRangeLabel(value, endLabel);
+  const triggerLabel = formatRangeLabel(value, endLabel, allTimeLabel);
 
   return (
     <>
-      <Button
-        className="date-range-trigger"
-        variant="outlined"
-        color="inherit"
-        onClick={openPicker}
-        startIcon={<Calendar size={16} />}
-        endIcon={
-          value.start ? (
-            <span
-              className="date-range-clear"
-              role="button"
-              tabIndex={0}
-              aria-label={t("Clear date range")}
-              onClick={clearRange}
-              onMouseDown={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  clearRange(event as unknown as MouseEvent);
-                }
-              }}
-            >
-              <X size={16} />
-            </span>
-          ) : (
-            <ChevronDown size={16} className={`chevron ${open ? "is-open" : ""}`} />
-          )
-        }
-      >
-        {triggerLabel}
-      </Button>
+      {hideTrigger ? null : (
+        <Button
+          className="date-range-trigger"
+          variant="outlined"
+          color="inherit"
+          onClick={openPicker}
+          startIcon={<Calendar size={16} />}
+          endIcon={
+            value.start ? (
+              <span
+                className="date-range-clear"
+                role="button"
+                tabIndex={0}
+                aria-label={t("Clear date range")}
+                onClick={clearRange}
+                onMouseDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    clearRange(event as unknown as MouseEvent);
+                  }
+                }}
+              >
+                <X size={16} />
+              </span>
+            ) : (
+              <ChevronDown size={16} className={`chevron ${open ? "is-open" : ""}`} />
+            )
+          }
+        >
+          {triggerLabel}
+        </Button>
+      )}
       <Popover
         open={open}
-        anchorEl={anchor}
+        anchorEl={anchorEl}
         onClose={cancelRange}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        anchorOrigin={anchorOrigin}
+        transformOrigin={transformOrigin}
         slotProps={{ paper: { className: "date-range-popover" } }}
       >
         <div className="date-range-panel" data-no-i18n>

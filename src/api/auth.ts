@@ -17,9 +17,13 @@ export type ProfileData = {
   userId: number;
   email: string;
   maskedEmail: string;
+  emailVerified?: boolean;
   phone?: string;
   maskedPhone?: string;
   phoneVerified?: boolean;
+  profileStep1Done?: boolean;
+  profileFirstName?: string;
+  profileLastName?: string;
   kycStatus: number;
   verificationComplete: boolean;
 };
@@ -80,6 +84,17 @@ export function logout() {
 
 export function fetchProfile() {
   return apiRequest<ProfileData>("/user/profile");
+}
+
+export function verifyContactEmail() {
+  return apiRequest<null>("/user/verify-contact-email", { method: "POST" });
+}
+
+export function completeProfileStep1(body: { firstName: string; lastName: string }) {
+  return apiRequest<null>("/user/profile-step1", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export function resetPassword(body: {

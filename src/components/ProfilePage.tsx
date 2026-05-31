@@ -32,9 +32,10 @@ import {
 const STORAGE_KEY = "exness-profile-verify-v1";
 export const PROFILE_FLOW_KEY = "pa-profile-flow";
 
-function continueLabelForContact(emailDone: boolean, phoneDone: boolean) {
+function continueLabelForContact(emailDone: boolean, phoneDone: boolean, profileDone: boolean) {
   if (!emailDone) return "立即开始";
-  if (!phoneDone) return "确认手机号码";
+  if (!phoneDone) return "立即开始";
+  if (!profileDone) return "立即完成";
   return "立即完成";
 }
 
@@ -55,6 +56,27 @@ type SavedState = {
   /** API 不可用时的本地回显 */
   savedPhone?: string;
 };
+
+function mergeSavedFromProfile(
+  profile: {
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
+    profileStep1Done?: boolean;
+    profileFirstName?: string;
+    profileLastName?: string;
+  } | null,
+  local: SavedState,
+): SavedState {
+  if (!profile) return local;
+  return {
+    step1Done: profile.profileStep1Done ?? local.step1Done,
+    emailDone: profile.emailVerified ?? local.emailDone,
+    phoneDone: profile.phoneVerified ?? local.phoneDone,
+    firstName: profile.profileFirstName?.trim() || local.firstName,
+    lastName: profile.profileLastName?.trim() || local.lastName,
+    savedPhone: local.savedPhone,
+  };
+}
 
 function readSaved(): SavedState {
   try {
@@ -220,7 +242,6 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
     state.userProfile?.maskedPhone ||
     localMaskedPhone ||
     (saved.savedPhone ? maskPhoneDisplay(saved.savedPhone) : "");
-  const phoneVerified = state.userProfile?.phoneVerified ?? saved.phoneDone;
 
   const [profileForm, setProfileForm] = useState<ProfileFormValues>({
     firstName: saved.firstName || "33",
@@ -250,6 +271,15 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
   }, []);
 
   useEffect(() => {
+    if (!state.userProfile) return;
+    setSaved((prev) => {
+      const next = mergeSavedFromProfile(state.userProfile, prev);
+      writeSaved(next);
+      return next;
+    });
+  }, [state.userProfile]);
+
+  useEffect(() => {
     const phone = state.userProfile?.phone;
     if (phone) {
       applyStoredPhone(phone, state.userProfile?.maskedPhone);
@@ -261,27 +291,19 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
       try {
         await refreshUserProfile(dispatch);
         const profile = await authApi.fetchProfile();
-        if (profile.phoneVerified) {
-          setSaved((prev) => {
-            const next = { ...prev, phoneDone: true };
-            writeSaved(next);
-            return next;
-          });
-        }
-        setSaved((prev) => {
-          if (prev.step1Done && !profile.phoneVerified) {
-            const next = { ...prev, step1Done: false };
-            writeSaved(next);
-            return next;
-          }
-          return prev;
-        });
+        const merged = mergeSavedFromProfile(profile, readSaved());
+        persist(merged);
         if (profile.phone) {
           applyStoredPhone(profile.phone, profile.maskedPhone);
+        } else if (merged.savedPhone) {
+          applyStoredPhone(merged.savedPhone);
         }
-        const local = readSaved();
-        if (local.savedPhone && !profile.phone) {
-          applyStoredPhone(local.savedPhone);
+        if (profile.profileFirstName || profile.profileLastName) {
+          setProfileForm((prev) => ({
+            ...prev,
+            firstName: profile.profileFirstName || prev.firstName,
+            lastName: profile.profileLastName || prev.lastName,
+          }));
         }
       } catch {
         /* ignore */
@@ -290,10 +312,11 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
         if (data.fullName) setKycFullName(data.fullName);
       }).catch(() => undefined);
     })();
-  }, [dispatch]);
+  }, [dispatch, persist, applyStoredPhone]);
 
-  const emailDone = saved.emailDone;
-  const phoneDone = saved.phoneDone || phoneVerified;
+  const emailDone = Boolean(state.userProfile?.emailVerified ?? saved.emailDone);
+  const phoneDone = Boolean(state.userProfile?.phoneVerified ?? saved.phoneDone);
+  const step1Done = Boolean(state.userProfile?.profileStep1Done ?? saved.step1Done);
 
   function continueContactFlow() {
     if (!emailDone) {
@@ -304,7 +327,7 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
       setModal("phone-input");
       return;
     }
-    if (!saved.step1Done) {
+    if (!step1Done) {
       setProfileWizardStep(1);
       setModal("profile-wizard");
       return;
@@ -331,7 +354,7 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
   const identityRejected = kycStatus === 3;
 
   let completedCount = 0;
-  if (saved.step1Done) completedCount += 1;
+  if (step1Done) completedCount += 1;
   if (identityVerified) completedCount += 1;
 
   const statusLabel =
@@ -345,18 +368,18 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
 
   const displayName = kycFullName || (saved.firstName && saved.lastName ? `${saved.firstName} ${saved.lastName}` : "");
 
-  /** 步骤1「立即完成」：固定从登录邮箱验证开始，再手机，再概览，再个人资料 */
+  /** 步骤1：先展示概览，再按进度进入邮箱 / 手机 / 个人资料 */
   const openStep1Flow = () => {
-    if (saved.step1Done) return;
-    setModal("email");
+    if (step1Done) return;
+    setModal("overview");
   };
 
   const openIdentityVerifyFlow = () => {
     if (identityPending) return;
-    if (!emailDone || !phoneDone || !saved.step1Done) {
+    if (!emailDone || !phoneDone || !step1Done) {
       setResumeToIdentity(true);
       setExpandedStep(1);
-      continueContactFlow();
+      openStep1Flow();
       toast?.("请先完成邮箱、手机验证及个人资料");
       return;
     }
@@ -365,21 +388,32 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
   };
 
   const finishStep1 = () => {
-    persist({
-      step1Done: true,
-      emailDone: true,
-      phoneDone: true,
-      firstName: profileForm.firstName.trim() || "33",
-      lastName: profileForm.lastName.trim() || "33",
-    });
-    setExpandedStep(2);
-    if (resumeToIdentity) {
-      setResumeToIdentity(false);
-      setIdentityOpen(true);
-      return;
-    }
-    setModal(null);
-    toast?.("个人资料步骤已完成，可进行身份验证");
+    void (async () => {
+      const first = profileForm.firstName.trim() || "33";
+      const last = profileForm.lastName.trim() || "33";
+      try {
+        await authApi.completeProfileStep1({ firstName: first, lastName: last });
+        await refreshUserProfile(dispatch);
+      } catch (err) {
+        toast?.(err instanceof Error ? err.message : "个人资料保存失败");
+        return;
+      }
+      persist({
+        step1Done: true,
+        emailDone: true,
+        phoneDone: true,
+        firstName: first,
+        lastName: last,
+      });
+      setExpandedStep(2);
+      if (resumeToIdentity) {
+        setResumeToIdentity(false);
+        setIdentityOpen(true);
+        return;
+      }
+      setModal(null);
+      toast?.("个人资料步骤已完成，可进行身份验证");
+    })();
   };
 
   const patchUserProfilePhone = useCallback(
@@ -387,9 +421,13 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
       const base: UserProfile = state.userProfile ?? {
         email: "",
         maskedEmail: maskedEmail === "—" ? "" : maskedEmail,
+        emailVerified: false,
         phone: "",
         maskedPhone: "",
         phoneVerified: false,
+        profileStep1Done: false,
+        profileFirstName: "",
+        profileLastName: "",
         kycStatus: 0,
         kycRejectReason: "",
       };
@@ -511,13 +549,13 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
         <h2 className="profile-exness-subtitle">验证步骤</h2>
         <div className="profile-steps-panel">
           {/* Step 1 */}
-          <div className={`profile-step${expandedStep === 1 ? " is-expanded" : ""}${saved.step1Done ? " is-done" : ""}`}>
+          <div className={`profile-step${expandedStep === 1 ? " is-expanded" : ""}${step1Done ? " is-done" : ""}`}>
             <button type="button" className="profile-step-head" onClick={() => toggleStep(1)}>
-              <span className={`profile-step-num${saved.step1Done ? "" : expandedStep === 1 ? " is-active" : ""}`}>1</span>
+              <span className={`profile-step-num${step1Done ? "" : expandedStep === 1 ? " is-active" : ""}`}>1</span>
               <span className="profile-step-title">
-                {saved.step1Done ? "个人信息" : "确认电子邮箱和手机号码。添加个人资料"}
+                {step1Done ? "个人信息" : "确认电子邮箱和手机号码。添加个人资料"}
               </span>
-              {saved.step1Done ? (
+              {step1Done ? (
                 <span className="profile-step-verified">已验证</span>
               ) : (
                 <span className="profile-step-chevron" aria-hidden="true">
@@ -525,7 +563,7 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
                 </span>
               )}
             </button>
-            {saved.step1Done ? (
+            {step1Done ? (
               <div className="profile-step-done-body">
                 <p className="profile-step-contact">
                   {maskedEmail}
@@ -552,28 +590,28 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
           <div className="profile-step-divider" />
 
           {/* Step 2 */}
-          <div className={`profile-step${expandedStep === 2 ? " is-expanded" : ""}${!saved.step1Done ? " is-locked" : ""}${identityVerified ? " is-done" : ""}`}>
+          <div className={`profile-step${expandedStep === 2 ? " is-expanded" : ""}${!step1Done ? " is-locked" : ""}${identityVerified ? " is-done" : ""}`}>
             <button
               type="button"
               className="profile-step-head"
-              onClick={() => saved.step1Done && toggleStep(2)}
-              disabled={!saved.step1Done}
+              onClick={() => step1Done && toggleStep(2)}
+              disabled={!step1Done}
             >
-              <span className={`profile-step-num${identityVerified ? "" : expandedStep === 2 && saved.step1Done ? " is-active-blue" : ""}`}>2</span>
+              <span className={`profile-step-num${identityVerified ? "" : expandedStep === 2 && step1Done ? " is-active-blue" : ""}`}>2</span>
               <span className="profile-step-title">身份验证</span>
               {identityVerified ? (
                 <span className="profile-step-verified">已验证</span>
-              ) : saved.step1Done ? (
+              ) : step1Done ? (
                 <span className="profile-step-chevron" aria-hidden="true">
                   {expandedStep === 2 ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                 </span>
               ) : null}
             </button>
-            {identityVerified && saved.step1Done ? (
+            {identityVerified && step1Done ? (
               <div className="profile-step-done-body">
                 {displayName ? <p className="profile-step-contact">{displayName}</p> : null}
               </div>
-            ) : expandedStep === 2 && saved.step1Done ? (
+            ) : expandedStep === 2 && step1Done ? (
               <div className="profile-step-body">
                 <p className="profile-step-muted">请提供可验证您姓名的文件</p>
                 {displayName ? <p className="profile-step-detail">{displayName}</p> : null}
@@ -599,7 +637,7 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
                   {identityPending ? "审核中" : identityRejected ? "重新提交" : "立即验证"}
                 </button>
               </div>
-            ) : !saved.step1Done ? (
+            ) : !step1Done ? (
               <div className="profile-step-body profile-step-body--collapsed">
                 <p className="profile-step-muted">请提供由政府颁发的文件</p>
                 <p className="profile-step-detail">添加个人资料信息</p>
@@ -620,22 +658,22 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
           <div className="profile-step-divider" />
 
           {/* Step 3 */}
-          <div className={`profile-step${expandedStep === 3 ? " is-expanded" : ""}${!saved.step1Done ? " is-locked" : ""}`}>
+          <div className={`profile-step${expandedStep === 3 ? " is-expanded" : ""}${!step1Done ? " is-locked" : ""}`}>
             <button
               type="button"
               className="profile-step-head"
-              onClick={() => saved.step1Done && toggleStep(3)}
-              disabled={!saved.step1Done}
+              onClick={() => step1Done && toggleStep(3)}
+              disabled={!step1Done}
             >
               <span className="profile-step-num">3</span>
               <span className="profile-step-title profile-step-title--muted">居住地址验证</span>
-              {saved.step1Done ? (
+              {step1Done ? (
                 <span className="profile-step-chevron" aria-hidden="true">
                   {expandedStep === 3 ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                 </span>
               ) : null}
             </button>
-            {expandedStep === 3 && saved.step1Done ? (
+            {expandedStep === 3 && step1Done ? (
               <div className="profile-step-body">
                 <p className="profile-step-muted">您需要提供您的地址证明</p>
                 <p className="profile-step-detail">添加个人资料信息</p>
@@ -647,7 +685,7 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
                   立即验证
                 </button>
               </div>
-            ) : !saved.step1Done ? (
+            ) : !step1Done ? (
               <div className="profile-step-body profile-step-body--collapsed">
                 <p className="profile-step-muted">您需要提供您的地址证明</p>
                 <p className="profile-step-detail">添加个人资料信息</p>
@@ -670,9 +708,10 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
           email={maskedEmail}
           emailDone={emailDone}
           phoneDone={phoneDone}
+          profileDone={step1Done}
           onClose={() => setModal(null)}
           onContinue={continueContactFlow}
-          continueLabel={continueLabelForContact(emailDone, phoneDone)}
+          continueLabel={continueLabelForContact(emailDone, phoneDone, step1Done)}
         />
       )}
 
@@ -692,13 +731,18 @@ export function ProfilePage({ toast }: { toast?: (msg: string) => void }) {
           <SixDigitCode
             key="email-code"
             onComplete={() => {
-              setSaved((s) => {
-                const next = { ...s, emailDone: true };
-                writeSaved(next);
-                return next;
-              });
-              toast?.("邮箱已验证");
-              setModal("phone-input");
+              void (async () => {
+                try {
+                  await authApi.verifyContactEmail();
+                  await refreshUserProfile(dispatch);
+                } catch (err) {
+                  toast?.(err instanceof Error ? err.message : "邮箱验证失败");
+                  return;
+                }
+                persist({ ...readSaved(), emailDone: true });
+                toast?.("邮箱已验证");
+                setModal("overview");
+              })();
             }}
           />
           <CountdownResend />

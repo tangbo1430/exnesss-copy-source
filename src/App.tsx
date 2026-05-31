@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -53,6 +53,7 @@ import {
   AppWindow,
   Bell,
   ChevronDown,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   CircleHelp,
@@ -96,7 +97,8 @@ import { AccountsPage } from "./components/AccountsPage";
 import { OpenAccountFlow } from "./components/OpenAccountFlow";
 import { TradeDialog } from "./components/TradeDialog";
 import { accounts as showcaseAccounts } from "./data/mockData";
-import { DateRangePicker, filterByDateRange } from "./components/DateRangePicker";
+import { filterByDateRange } from "./components/DateRangePicker";
+import { OrdersHistoryFiltersBar } from "./components/OrdersHistoryFiltersBar";
 import { OrdersHistoryTable } from "./components/OrdersHistoryTable";
 import { TransactionHistoryFiltersBar } from "./components/TransactionHistoryFiltersBar";
 import {
@@ -112,12 +114,19 @@ import { TradingConditionsPage } from "./components/TradingConditionsPage";
 import { VpsPage } from "./components/VpsPage";
 import { PerformancePage } from "./components/PerformancePage";
 import { LegalFooter } from "./components/LegalFooter";
+import { GoogleIcon } from "./components/GoogleIcon";
 import { ProfilePage, PROFILE_FLOW_KEY } from "./components/ProfilePage";
+import {
+  resolveVerificationIntroActiveStep,
+  VerificationStepsIntroModal,
+} from "./components/VerificationStepsIntroModal";
 import { refreshUserProfile } from "./utils/userProfile";
 import { DEFAULT_PA_ROUTE, readPathname, resolvePaRoute, writeAppRoot, writePaPath } from "./utils/paRoutes";
+import { applyAppDocumentTitle, applyAuthDocumentTitle, applyLoadingDocumentTitle, type AuthTab } from "./utils/pageTitle";
 import type { DateRangeValue } from "./utils/dateRange";
-import { languageOptions, localizeTree } from "./i18n";
-import { clearTokens, getAccessToken, compressImageFile } from "./api/client";
+import { languageLocaleCodes, languageOptions, localizeTree, readStoredLanguage, translateText } from "./i18n";
+import { depositMaintenanceWindow } from "./config/paymentMaintenance";
+import { clearLegacyTokens, clearTokens, compressImageFile } from "./api/client";
 import { canFundAccount, isDemoFundFlow, kycAllowsRealFund, pickDefaultFundAccountId } from "./config/simulation";
 import * as authApi from "./api/auth";
 import * as fundApi from "./api/fund";
@@ -207,6 +216,7 @@ type DialogState =
   | { name: "payment"; flow: "deposit" | "withdrawal"; accountId?: string }
   | { name: "transfer"; accountId?: string }
   | { name: "ticket" }
+  | { name: "verificationIntro" }
   | { name: "verification"; stepId?: string }
   | { name: "refer" }
   | { name: "external"; title: string; body: string }
@@ -354,6 +364,7 @@ async function copyToClipboard(value: string, toast: Toast) {
 
 export default function App() {
   const [stage, setStage] = useState<Stage>("login");
+  const [authTab, setAuthTab] = useState<AuthTab>("login");
   const [dialog, setDialog] = useState<DialogState>(null);
   const [snackbar, setSnackbar] = useState("");
   const [booting, setBooting] = useState(true);
@@ -363,11 +374,8 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    clearLegacyTokens();
     (async () => {
-      if (!getAccessToken()) {
-        if (!cancelled) setBooting(false);
-        return;
-      }
       try {
         await authApi.fetchProfile();
         if (!cancelled) {
@@ -375,7 +383,7 @@ export default function App() {
           writePaPath(resolvePaRoute(), true);
         }
       } catch {
-        clearTokens();
+        // 未登录或 cookie 已失效
       } finally {
         if (!cancelled) setBooting(false);
       }
@@ -384,6 +392,12 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (booting) {
+      applyLoadingDocumentTitle(readStoredLanguage());
+    }
+  }, [booting]);
 
   if (booting) {
     return (
@@ -404,7 +418,7 @@ export default function App() {
       <PAProvider>
         <I18nSync />
         {stage === "login" ? (
-          <LoginPage setStage={setStage} openDialog={setDialog} toast={toast} />
+          <LoginPage setStage={setStage} openDialog={setDialog} toast={toast} authTab={authTab} setAuthTab={setAuthTab} />
         ) : (
           <AppShell setStage={setStage} openDialog={setDialog} toast={toast} navigateRef={navigateRef} />
         )}
@@ -431,14 +445,7 @@ function I18nSync() {
   const language = state.settings.language;
 
   useEffect(() => {
-    const langCodes: Record<string, string> = {
-      English: "en",
-      "简体中文": "zh-CN",
-      "Tiếng Việt": "vi",
-      "Bahasa Indonesia": "id",
-      Español: "es",
-    };
-    document.documentElement.lang = langCodes[language] ?? "en";
+    document.documentElement.lang = languageLocaleCodes[language as keyof typeof languageLocaleCodes] ?? "en";
 
     let frame = 0;
     const apply = () => {
@@ -463,9 +470,39 @@ function I18nSync() {
   return null;
 }
 
-function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) => void; openDialog: DialogOpener; toast: Toast }) {
+function LoginField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className ? `login-field ${className}` : "login-field"}>
+      <span className="login-field-label">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function LoginPage({
+  setStage,
+  openDialog,
+  toast,
+  authTab,
+  setAuthTab,
+}: {
+  setStage: (stage: Stage) => void;
+  openDialog: DialogOpener;
+  toast: Toast;
+  authTab: AuthTab;
+  setAuthTab: (tab: AuthTab) => void;
+}) {
   const { state, dispatch } = usePA();
-  const [tab, setTab] = useState<"login" | "register">("login");
+  const tab = authTab;
+  const setTab = setAuthTab;
   const [showPassword, setShowPassword] = useState(false);
   const [languageAnchor, setLanguageAnchor] = useState<HTMLElement | null>(null);
   const [email, setEmail] = useState("");
@@ -480,6 +517,18 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
   const [submitting, setSubmitting] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const [codeCooldown, setCodeCooldown] = useState(0);
+  const [partnerCodeOpen, setPartnerCodeOpen] = useState(false);
+  const [partnerCode, setPartnerCode] = useState("");
+
+  const registerPasswordRules = useMemo(
+    () => [
+      { label: "8—15个字符", ok: password.length >= 8 && password.length <= 15 },
+      { label: "需包含至少一个大写和小写字母", ok: /[a-z]/.test(password) && /[A-Z]/.test(password) },
+      { label: "需包含至少一个数字", ok: /\d/.test(password) },
+      { label: "需包含至少一个特殊字符", ok: /[^A-Za-z0-9]/.test(password) },
+    ],
+    [password],
+  );
 
   async function loadCaptcha() {
     setCaptchaLoading(true);
@@ -506,6 +555,10 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
   useEffect(() => {
     void loadCaptcha();
   }, []);
+
+  useEffect(() => {
+    applyAuthDocumentTitle(tab, state.settings.language);
+  }, [tab, state.settings.language]);
 
   useEffect(() => {
     if (codeCooldown <= 0) return;
@@ -596,77 +649,129 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
           <Typography variant="h1" sx={{ textAlign: "center" }}>
             Exness 欢迎您
           </Typography>
-          <Tabs value={tab} onChange={(_, value: "login" | "register") => setTab(value)} className="login-tabs-mui">
+          <Tabs value={tab} onChange={(_, value: AuthTab) => setTab(value)} className="login-tabs-mui">
             <Tab value="login" label="登录" />
             <Tab value="register" label="开立账户" />
           </Tabs>
-          {tab === "register" && <TextField label="居住国家/地区" value={country} onChange={(event) => setCountry(event.target.value)} fullWidth />}
-          <TextField label="电子邮箱地址" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} fullWidth />
           {tab === "register" && (
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <TextField label="邮箱验证码" value={emailCode} onChange={(event) => setEmailCode(event.target.value)} fullWidth />
-              <Button
-                variant="outlined"
-                disabled={sendingCode || codeCooldown > 0}
-                onClick={() => void sendRegisterCode()}
-                sx={{ flexShrink: 0, whiteSpace: "nowrap", px: 2 }}
-              >
-                {codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
-              </Button>
-            </Stack>
+            <LoginField label="居住国家/地区">
+              <TextField value={country} onChange={(event) => setCountry(event.target.value)} fullWidth hiddenLabel />
+            </LoginField>
           )}
-          <TextField
-            label="密码"
-            type={showPassword ? "text" : "password"}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete={tab === "login" ? "current-password" : "new-password"}
-            fullWidth
-            slotProps={{
-              input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton aria-label="Toggle password" onClick={() => setShowPassword(!showPassword)} edge="end">
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </IconButton>
-                </InputAdornment>
-              ),
-              },
-            }}
-          />
-          {tab === "register" && <FormControlLabel control={<Checkbox defaultChecked />} label="我确认自己不是美国居民，并同意法律文件。" />}
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <Box
-              sx={{
-                width: 120,
-                height: 48,
-                borderRadius: 1,
-                border: "1px solid #ddd",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                overflow: "hidden",
-                bgcolor: "#fafafa",
-                flexShrink: 0,
+          <LoginField label="电子邮箱地址">
+            <TextField
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              fullWidth
+              hiddenLabel
+            />
+          </LoginField>
+          {tab === "register" && (
+            <LoginField label="邮箱验证码">
+              <div className="login-field-row">
+                <TextField value={emailCode} onChange={(event) => setEmailCode(event.target.value)} fullWidth hiddenLabel />
+                <Button
+                  variant="outlined"
+                  disabled={sendingCode || codeCooldown > 0}
+                  onClick={() => void sendRegisterCode()}
+                  sx={{ flexShrink: 0, whiteSpace: "nowrap", px: 2, height: 56 }}
+                >
+                  {codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
+                </Button>
+              </div>
+            </LoginField>
+          )}
+          <LoginField label="密码">
+            <TextField
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete={tab === "login" ? "current-password" : "new-password"}
+              fullWidth
+              hiddenLabel
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton aria-label="Toggle password" onClick={() => setShowPassword(!showPassword)} edge="end">
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
               }}
-            >
-              {captchaLoading ? (
-                <Typography variant="caption" color="text.secondary">
-                  加载中...
-                </Typography>
-              ) : captchaImage ? (
-                <Box component="img" src={captchaImage} alt="验证码" sx={{ height: 48, width: "100%", objectFit: "contain" }} />
-              ) : (
-                <Typography variant="caption" color="error">
-                  {captchaError ? "加载失败" : "无图片"}
-                </Typography>
-              )}
-            </Box>
-            <IconButton aria-label="Refresh captcha" onClick={() => void loadCaptcha()} disabled={captchaLoading}>
-              <History size={18} />
-            </IconButton>
-            <TextField label="验证码" value={captchaCode} onChange={(event) => setCaptchaCode(event.target.value)} fullWidth />
-          </Stack>
+            />
+            {tab === "register" ? (
+              <ul className="login-password-rules">
+                {registerPasswordRules.map((rule, index) => (
+                  <li key={rule.label} className={rule.ok ? "is-ok" : ""}>
+                    <span>{rule.label}</span>
+                    {index === 0 ? <span className="login-password-rules-count">{password.length}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </LoginField>
+          {tab === "register" && (
+            <div className="login-partner-code">
+              <button
+                type="button"
+                className="login-partner-code-toggle"
+                aria-expanded={partnerCodeOpen}
+                onClick={() => setPartnerCodeOpen((open) => !open)}
+              >
+                <span>合作伙伴代码（选填）</span>
+                {partnerCodeOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
+              {partnerCodeOpen ? (
+                <TextField
+                  value={partnerCode}
+                  onChange={(event) => setPartnerCode(event.target.value)}
+                  fullWidth
+                  hiddenLabel
+                  placeholder=""
+                  autoComplete="off"
+                />
+              ) : null}
+            </div>
+          )}
+          {tab === "register" && <FormControlLabel control={<Checkbox defaultChecked />} label="我确认自己不是美国居民，并同意法律文件。" />}
+          <LoginField label="验证码">
+            <div className="login-captcha-row">
+              <Box
+                sx={{
+                  width: 120,
+                  height: 56,
+                  borderRadius: 1,
+                  border: "1px solid #ddd",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  bgcolor: "#fafafa",
+                  flexShrink: 0,
+                }}
+              >
+                {captchaLoading ? (
+                  <Typography variant="caption" color="text.secondary">
+                    加载中...
+                  </Typography>
+                ) : captchaImage ? (
+                  <Box component="img" src={captchaImage} alt="验证码" sx={{ height: 56, width: "100%", objectFit: "contain" }} />
+                ) : (
+                  <Typography variant="caption" color="error">
+                    {captchaError ? "加载失败" : "无图片"}
+                  </Typography>
+                )}
+              </Box>
+              <IconButton aria-label="Refresh captcha" onClick={() => void loadCaptcha()} disabled={captchaLoading} sx={{ height: 56 }}>
+                <History size={18} />
+              </IconButton>
+              <TextField value={captchaCode} onChange={(event) => setCaptchaCode(event.target.value)} fullWidth hiddenLabel />
+            </div>
+          </LoginField>
           {captchaError ? (
             <Typography variant="caption" color="error">
               {captchaError}（请确认后端 :8080 已启动，或点击刷新）
@@ -678,8 +783,20 @@ function LoginPage({ setStage, openDialog, toast }: { setStage: (stage: Stage) =
           <div className="divider">
             <span>或使用以下方式登录</span>
           </div>
-          <Button variant="outlined" fullWidth onClick={() => openDialog({ name: "external", title: "Google sign-in", body: "Google authentication is represented locally in this static build." })}>
-            <span className="google-g">G</span> Google
+          <Button
+            className="login-google-btn"
+            variant="outlined"
+            fullWidth
+            onClick={() =>
+              openDialog({
+                name: "external",
+                title: "Google sign-in",
+                body: "Google authentication is represented locally in this static build.",
+              })
+            }
+          >
+            <GoogleIcon size={20} />
+            Google
           </Button>
           <Button variant="text" onClick={() => openDialog({ name: "external", title: "Forgot password", body: "Enter your email and Exness would send a password reset link. This preview keeps the action local." })}>
             忘记密码
@@ -810,6 +927,10 @@ function AppShell({
   useEffect(() => {
     navigateRef.current = navigate;
   });
+
+  useEffect(() => {
+    applyAppDocumentTitle(route, language);
+  }, [route, language]);
 
   useEffect(() => {
     const initial = resolvePaRoute();
@@ -1120,7 +1241,6 @@ function Header({
         <Divider />
         <MenuItem onClick={() => { close(); navigate("/pa/settings/profile"); }}>Settings</MenuItem>
         <MenuItem onClick={() => { close(); navigate("/pa/exness-benefits/swapfree"); }}>Trading Conditions</MenuItem>
-        <MenuItem onClick={() => { close(); openDialog({ name: "password" }); }}>Change password</MenuItem>
         <MenuItem
           onClick={() => {
             close();
@@ -1252,21 +1372,41 @@ function SideGroup({
   openDialog: DialogOpener;
 }) {
   const Icon = group.icon;
+  const [flyoutAnchor, setFlyoutAnchor] = useState<HTMLElement | null>(null);
   const groupSelected = collapsed && group.children.some((child) => !child.external && child.route === route);
 
-  function handleGroupClick() {
+  useEffect(() => {
+    setFlyoutAnchor(null);
+  }, [route]);
+
+  function closeFlyout() {
+    setFlyoutAnchor(null);
+  }
+
+  function handleChildClick(child: (typeof group.children)[number]) {
+    closeFlyout();
+    if (child.external) {
+      openDialog({
+        name: "external",
+        title: child.label,
+        body: `${child.label} opens outside the Personal Area. This preview keeps the action local.`,
+      });
+      return;
+    }
+    navigate(child.route);
+  }
+
+  function handleGroupClick(event: MouseEvent<HTMLElement>) {
     if (!collapsed) {
       onToggle();
       return;
     }
-
-    const firstLocalChild = group.children.find((child) => !child.external);
-    if (firstLocalChild) navigate(firstLocalChild.route);
+    setFlyoutAnchor(event.currentTarget);
   }
 
   return (
     <div className="sidebar-group">
-      <ListItemButton onClick={handleGroupClick} selected={groupSelected}>
+      <ListItemButton onClick={handleGroupClick} selected={groupSelected || Boolean(flyoutAnchor)}>
         <ListItemIcon>
           <Icon size={18} />
         </ListItemIcon>
@@ -1279,15 +1419,37 @@ function SideGroup({
             <ListItemButton
               key={`${child.label}-${child.route}`}
               selected={!child.external && route === child.route}
-              onClick={() => {
-                if (child.external) openDialog({ name: "external", title: child.label, body: `${child.label} opens outside the Personal Area. This preview keeps the action local.` });
-                else navigate(child.route);
-              }}
+              onClick={() => handleChildClick(child)}
             >
               <ListItemText primary={child.label} />
             </ListItemButton>
           ))}
         </MuiList>
+      ) : null}
+      {collapsed ? (
+        <Menu
+          anchorEl={flyoutAnchor}
+          open={Boolean(flyoutAnchor)}
+          onClose={closeFlyout}
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+          slotProps={{
+            paper: {
+              className: "sidebar-flyout-menu",
+              sx: { minWidth: 220, ml: 0.5 },
+            },
+          }}
+        >
+          {group.children.map((child) => (
+            <MenuItem
+              key={`${child.label}-${child.route}`}
+              selected={!child.external && route === child.route}
+              onClick={() => handleChildClick(child)}
+            >
+              {child.label}
+            </MenuItem>
+          ))}
+        </Menu>
       ) : null}
     </div>
   );
@@ -1324,26 +1486,27 @@ function SideLink({
 function KycBanner({ navigate, openDialog }: { navigate: (route: Route) => void; openDialog: DialogOpener }) {
   const { state } = usePA();
   const kycStatus = state.userProfile?.kycStatus ?? 0;
+  const step1Done = state.userProfile?.profileStep1Done ?? false;
   const hasRealAccount = state.accounts.some((account) => account.kind === "Real" && account.status === "Active");
   if (kycStatus === 2 || !hasRealAccount) return null;
+
+  function startVerification() {
+    sessionStorage.setItem(PROFILE_FLOW_KEY, step1Done ? "identity" : "step1");
+    navigate("/pa/settings/profile");
+  }
+
   return (
     <div className="kyc-banner">
       <ShieldCheck size={24} />
       <div>
-        <strong>Fill in your account details to make your first deposit</strong>
+        <strong>您好！请完善账户资料，以便进行首次入金</strong>
         <span>Complete profile, identity and address verification to unlock the full payment flow.</span>
       </div>
-      <Button variant="outlined" onClick={() => openDialog({ name: "external", title: "Account verification", body: "Exness asks for profile, identity and address details before unrestricted payments are available." })}>
-        Learn more
+      <Button variant="outlined" onClick={() => openDialog({ name: "verificationIntro" })}>
+        了解详情
       </Button>
-      <Button
-        variant="contained"
-        onClick={() => {
-          sessionStorage.setItem(PROFILE_FLOW_KEY, "identity");
-          navigate("/pa/settings/profile");
-        }}
-      >
-        Complete
+      <Button variant="contained" onClick={startVerification}>
+        完成
       </Button>
     </div>
   );
@@ -1360,23 +1523,28 @@ function OrdersPage({ toast }: { toast: Toast }) {
   );
 
   return (
-    <Page title="History of orders" actions={<Button variant="outlined" startIcon={<Download size={16} />} onClick={() => { downloadCsv("orders.csv", rows); toast("CSV download generated."); }}>Download CSV</Button>}>
-      <div className="toolbar">
-        <ToggleButtonGroup exclusive value={status} onChange={(_, value: OrderStatus | "All" | null) => value && setStatus(value)}>
-          <ToggleButton value="Closed">Closed orders</ToggleButton>
-          <ToggleButton value="Open">Open orders</ToggleButton>
-          <ToggleButton value="All">All</ToggleButton>
-        </ToggleButtonGroup>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel>Account</InputLabel>
-          <Select value={accountId} label="Account" onChange={(event) => setAccountId(event.target.value)}>
-            <MenuItem value="all">All accounts</MenuItem>
-            {state.accounts.map((account) => (
-              <MenuItem key={account.id} value={account.id}>{getAccountName(state.accounts, account.id)}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+    <Page title="History of orders">
+      <div className="orders-history-toolbar">
+        <OrdersHistoryFiltersBar
+          status={status}
+          onStatusChange={setStatus}
+          accountId={accountId}
+          onAccountIdChange={setAccountId}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          accounts={state.accounts}
+        />
+        <Button
+          className="orders-history-download"
+          variant="outlined"
+          startIcon={<Download size={16} />}
+          onClick={() => {
+            downloadCsv("orders.csv", rows);
+            toast("CSV download generated.");
+          }}
+        >
+          Download CSV
+        </Button>
       </div>
       <OrdersHistoryTable orders={rows} empty="No orders match this filter." />
     </Page>
@@ -1401,6 +1569,42 @@ function PaymentsNoActiveAccounts({ navigate }: { navigate: (route: Route) => vo
   );
 }
 
+function DepositMaintenanceDialog({
+  open,
+  language,
+  onClose,
+}: {
+  open: boolean;
+  language: string;
+  onClose: () => void;
+}) {
+  const label = (text: string) => translateText(text, language);
+  return (
+    <Dialog open={open} onClose={onClose} className="deposit-maintenance-dialog" fullWidth maxWidth="xs">
+      <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pr: 1 }}>
+        {label("Scheduled maintenance reminder")}
+        <IconButton aria-label="Close" onClick={onClose} size="small">
+          <X size={18} />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <Typography>{label("Payment services will be temporarily unavailable during the following period:")}</Typography>
+        <strong className="maintenance-window">{depositMaintenanceWindow}</strong>
+        <Typography sx={{ mt: 1.5 }}>
+          {label(
+            "After maintenance is completed, services will return to normal. We apologize for any inconvenience caused.",
+          )}
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3, pt: 0 }}>
+        <Button fullWidth variant="contained" className="deposit-maintenance-submit" onClick={onClose}>
+          {label("Got it")}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; openDialog: DialogOpener; toast: Toast; navigate: (route: Route) => void }) {
   const { state, dispatch } = usePA();
   const language = state.settings.language;
@@ -1415,7 +1619,14 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
   });
   const [transactionFilters, setTransactionFilters] = useState<TransactionHistoryFilters>(defaultTransactionHistoryFilters);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const flow = route.includes("withdrawal") ? "withdrawal" : "deposit";
+
+  useEffect(() => {
+    if (route === "/pa/payments-and-wallet/deposit") {
+      setMaintenanceOpen(true);
+    }
+  }, [route]);
 
   useEffect(() => {
     const realActive = state.accounts.filter((account) => account.status === "Active" && account.kind === "Real");
@@ -1504,7 +1715,13 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
   const selectedAccount = state.accounts.find((account) => account.id === accountId);
   const fundBlocked = !kycAllowsRealFund(kycStatus);
   return (
-    <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
+    <>
+      <DepositMaintenanceDialog
+        open={maintenanceOpen && flow === "deposit"}
+        language={language}
+        onClose={() => setMaintenanceOpen(false)}
+      />
+      <Page title={flow === "deposit" ? "Deposit" : "Withdrawal"}>
       <div className="payment-layout">
         <Paper className="payment-account">
           <Typography variant="h3">Account</Typography>
@@ -1554,6 +1771,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
         </Stack>
       </div>
     </Page>
+    </>
   );
 }
 
@@ -1916,6 +2134,22 @@ function DialogHost({
   if (dialog.name === "payment") return <PaymentFlowDialog flow={dialog.flow} accountId={dialog.accountId} close={close} openDialog={openDialog} toast={toast} />;
   if (dialog.name === "transfer") return <TransferDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "ticket") return <TicketDialog close={close} toast={toast} />;
+  if (dialog.name === "verificationIntro") {
+    const kycStatus = state.userProfile?.kycStatus ?? 0;
+    const step1Done = state.userProfile?.profileStep1Done ?? false;
+    const activeStep = resolveVerificationIntroActiveStep({ profileStep1Done: step1Done, kycStatus });
+    return (
+      <VerificationStepsIntroModal
+        activeStep={activeStep}
+        onClose={close}
+        onVerify={() => {
+          close();
+          sessionStorage.setItem(PROFILE_FLOW_KEY, step1Done ? "identity" : "step1");
+          navigate("/pa/settings/profile");
+        }}
+      />
+    );
+  }
   if (dialog.name === "verification") return <VerificationDialog stepId={dialog.stepId} close={close} toast={toast} />;
   if (dialog.name === "rename") return <RenameDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "leverage") return <LeverageDialog accountId={dialog.accountId} close={close} toast={toast} />;

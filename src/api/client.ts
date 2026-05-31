@@ -1,5 +1,7 @@
 const TOKEN_KEY = "pa_access_token";
 const REFRESH_KEY = "pa_refresh_token";
+const LEGACY_TOKEN_KEY = "pa_access_token";
+const LEGACY_REFRESH_KEY = "pa_refresh_token";
 
 export type ApiEnvelope<T> = {
   code: number;
@@ -8,17 +10,25 @@ export type ApiEnvelope<T> = {
 };
 
 export function getAccessToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? "";
+  return sessionStorage.getItem(TOKEN_KEY) ?? "";
 }
 
 export function setTokens(accessToken: string, refreshToken: string) {
-  localStorage.setItem(TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_KEY, refreshToken);
+  sessionStorage.setItem(TOKEN_KEY, accessToken);
+  sessionStorage.setItem(REFRESH_KEY, refreshToken);
 }
 
 export function clearTokens() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_KEY);
+}
+
+/** 仅清理旧版 localStorage，不影响当前 sessionStorage 登录态 */
+export function clearLegacyTokens() {
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_KEY);
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -33,7 +43,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   let resp: Response;
   try {
-    resp = await fetch(`/api/v1${path}`, { ...init, headers });
+    resp = await fetch(`/api/v1${path}`, { ...init, headers, credentials: "include" });
   } catch {
     throw new Error("无法连接后端，请确认 simu-stock-server 已启动");
   }

@@ -183,9 +183,13 @@ export interface PaSettings {
 export interface UserProfile {
   email: string;
   maskedEmail: string;
+  emailVerified: boolean;
   phone: string;
   maskedPhone: string;
   phoneVerified: boolean;
+  profileStep1Done: boolean;
+  profileFirstName: string;
+  profileLastName: string;
   kycStatus: number;
   kycRejectReason: string;
 }

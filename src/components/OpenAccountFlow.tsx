@@ -95,6 +95,9 @@ const accountTypes: AccountTypeSpec[] = [
 
 const leverageOptions = ["1:200", "1:500", "1:1000", "1:2000", "1:Unlimited"];
 
+const CONTRACT_SPECIFICATIONS_URL =
+  "https://www.exness.com/zh/embeds/contract-specifications/forex/#standard";
+
 function TypeIcon({ kind }: { kind: AccountTypeSpec["icon"] }) {
   return <span className={`open-account-type-icon is-${kind}`} aria-hidden />;
 }
@@ -148,10 +151,15 @@ export function OpenAccountFlow({ navigate, toast }: OpenAccountFlowProps) {
         <Typography variant="h1" className="open-account-title">
           Open account
         </Typography>
-        <button type="button" className="open-account-contract-link" onClick={() => toast("Contract specifications opened.")}>
+        <a
+          href={CONTRACT_SPECIFICATIONS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="open-account-contract-link"
+        >
           Contract specifications
           <ExternalLink size={14} />
-        </button>
+        </a>
       </header>
 
       <AccountTypeSection
@@ -238,10 +246,10 @@ function OpenAccountSetupStep({
   const [currency, setCurrency] = useState("USD");
   const [initialFunds, setInitialFunds] = useState("500");
   const [nickname, setNickname] = useState(spec.title);
-  const [leverage, setLeverage] = useState("1:2000");
+  const [leverage, setLeverage] = useState("1:200");
   const [platform, setPlatform] = useState<AccountPlatform>("MT5");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [passwordHidden, setPasswordHidden] = useState(true);
 
   useEffect(() => {
     setNickname(spec.title);
@@ -376,16 +384,23 @@ function OpenAccountSetupStep({
 
           <TextField
             label="Trading password"
-            type={showPassword ? "text" : "password"}
             fullWidth
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
             slotProps={{
+              htmlInput: {
+                type: passwordHidden ? "password" : "text",
+              },
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton edge="end" onClick={() => setShowPassword((value) => !value)} aria-label="Toggle password">
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    <IconButton
+                      edge="end"
+                      onClick={() => setPasswordHidden((hidden) => !hidden)}
+                      aria-label={passwordHidden ? "Show password" : "Hide password"}
+                    >
+                      {passwordHidden ? <EyeOff size={18} /> : <Eye size={18} />}
                     </IconButton>
                   </InputAdornment>
                 ),
@@ -427,10 +442,15 @@ function OpenAccountSetupStep({
               <dd>{spec.commission}</dd>
             </div>
           </dl>
-          <button type="button" className="open-account-contract-link" onClick={() => toast("Contract specifications opened.")}>
+          <a
+            href={CONTRACT_SPECIFICATIONS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="open-account-contract-link"
+          >
             Contract specifications
             <ExternalLink size={14} />
-          </button>
+          </a>
         </aside>
       </div>
     </div>

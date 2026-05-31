@@ -94,8 +94,8 @@ const zh: Dictionary = {
   Account: "账户",
   Period: "周期",
   "All accounts": "所有账户",
-  "Last 7 days": "最后7 天",
-  "Last 30 days": "最后30 天",
+  "Last 7 days": "过去 7 天",
+  "Last 30 days": "过去 30 天",
   "Last 90 days": "最后90 天",
   "Last 365 days": "最后365 天",
   Profit: "利润",
@@ -125,6 +125,12 @@ const zh: Dictionary = {
   "Exness Terminal": "Exness 终端",
   "Payments & wallet": "支付和钱包",
   Deposit: "入金",
+  "Scheduled maintenance reminder": "定期维护提醒",
+  "Payment services will be temporarily unavailable during the following period:":
+    "支付服务将在以下期间暂时停止使用:",
+  "After maintenance is completed, services will return to normal. We apologize for any inconvenience caused.":
+    "维护完成后，服务将恢复正常。对于给您带来的不便，我们深感抱歉。",
+  "Got it": "好的",
   Withdrawal: "出金",
   Withdraw: "出金",
   Transfer: "转账",
@@ -235,6 +241,7 @@ const zh: Dictionary = {
   "Min deposit": "最低入金",
   "Min spread": "最小点差",
   "Max leverage": "最大杠杆",
+  Commission: "手续费",
   "Low minimum deposit and zero commission, suitable for traders of all levels.": "低门槛最低入金金额，零手续费，适合所有级别的交易者。",
   "Cent account": "美分账户",
   "Smaller lot sizes and lower risk. Ideal for practicing trading.": "更小的手数、更低的风险。练习交易的理想选择。",
@@ -325,7 +332,11 @@ const zh: Dictionary = {
   "Close price": "平仓价",
   "Profit, USD": "利润, USD",
   "Last 3 days": "过去 3 天",
+  "Past 3 days": "过去 3 天",
   "Last 3 months": "过去 3 个月",
+  "Past 3 months": "过去 3 个月",
+  "Past 7 days": "过去 7 天",
+  "Past 30 days": "过去 30 天",
   "Custom time": "自定义时间",
   "All transaction types": "全部交易类型",
   Refund: "退款",
@@ -727,25 +738,85 @@ function translateDynamic(text: string, language: Language): string | null {
   return null;
 }
 
+/** Cookie 名，后端可通过 `auth.CookieLang` 读取。值为 BCP47 locale：en / zh-CN / vi / id / es */
+export const languageCookieKey = "lang";
+
+/** @deprecated 旧版 localStorage key，仅用于迁移；新写入请用 cookie */
 export const languageStorageKey = "exness-pa-language";
+
+export const languageLocaleCodes: Record<Language, string> = {
+  English: "en",
+  "简体中文": "zh-CN",
+  "Tiếng Việt": "vi",
+  "Bahasa Indonesia": "id",
+  Español: "es",
+};
+
+const localeToLanguageMap = Object.fromEntries(
+  Object.entries(languageLocaleCodes).map(([language, locale]) => [locale.toLowerCase(), language]),
+) as Record<string, Language>;
+
+const languageCookieMaxAgeSec = 365 * 24 * 60 * 60;
 
 export function coerceLanguage(language: string): Language {
   return languageOptions.includes(language as Language) ? (language as Language) : "English";
 }
 
+export function languageToLocale(language: string): string {
+  return languageLocaleCodes[coerceLanguage(language)];
+}
+
+export function localeToLanguage(locale: string): Language | null {
+  const normalized = locale.trim().toLowerCase();
+  if (!normalized) return null;
+  const direct = localeToLanguageMap[normalized];
+  if (direct) return direct;
+  const short = normalized.split("-")[0];
+  return localeToLanguageMap[short] ?? null;
+}
+
+function readLanguageCookie(): string {
+  if (typeof document === "undefined") return "";
+  const prefix = `${languageCookieKey}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+  return "";
+}
+
+function writeLanguageCookie(language: Language) {
+  if (typeof document === "undefined") return;
+  const locale = languageToLocale(language);
+  document.cookie = `${languageCookieKey}=${encodeURIComponent(locale)}; path=/; max-age=${languageCookieMaxAgeSec}; samesite=lax`;
+}
+
 export function readStoredLanguage(): Language {
   try {
-    return coerceLanguage(localStorage.getItem(languageStorageKey) ?? "");
+    const fromCookie = localeToLanguage(readLanguageCookie());
+    if (fromCookie) return fromCookie;
+
+    const legacy = localStorage.getItem(languageStorageKey);
+    if (legacy) {
+      const language = coerceLanguage(legacy);
+      writeLanguageCookie(language);
+      return language;
+    }
   } catch {
-    return "English";
+    // Ignore quota / private mode / cookie errors.
   }
+  return "English";
 }
 
 export function writeStoredLanguage(language: string) {
+  const normalized = coerceLanguage(language);
   try {
-    localStorage.setItem(languageStorageKey, coerceLanguage(language));
+    writeLanguageCookie(normalized);
+    localStorage.removeItem(languageStorageKey);
   } catch {
-    // Ignore quota / private mode errors.
+    // Ignore quota / private mode / cookie errors.
   }
 }
 

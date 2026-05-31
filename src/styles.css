@@ -117,6 +117,94 @@ a {
   gap: 24px;
 }
 
+.login-field {
+  display: grid;
+  gap: 8px;
+}
+
+.login-field-label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.login-field .MuiTextField-root,
+.login-field .MuiFormControl-root {
+  margin: 0;
+}
+
+.login-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.login-captcha-row {
+  display: grid;
+  grid-template-columns: 120px auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.login-partner-code {
+  display: grid;
+  gap: 8px;
+}
+
+.login-partner-code-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.login-partner-code-toggle svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.login-password-rules {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  list-style-type: circle;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.login-password-rules li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-password-rules li.is-ok {
+  color: #2e7d32;
+}
+
+.login-password-rules-count {
+  flex-shrink: 0;
+  min-width: 1ch;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.login-password-rules li.is-ok .login-password-rules-count {
+  color: #2e7d32;
+}
+
 .login-tabs-mui {
   border-bottom: 1px solid var(--line);
 }
@@ -155,13 +243,30 @@ a {
   background: var(--line);
 }
 
-.google-g {
-  display: inline-grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  color: #4285f4;
-  font-weight: 700;
+.login-google-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  background: #f2f4f5 !important;
+  border-color: transparent !important;
+  color: var(--text) !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+}
+
+.login-google-btn:hover {
+  background: #e8eaec !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.google-icon {
+  flex-shrink: 0;
+  display: block;
 }
 
 .login-footer {
@@ -1101,8 +1206,90 @@ a {
 }
 
 .account-actions-menu {
-  min-width: 240px !important;
+  min-width: 280px !important;
   border-radius: 8px !important;
+  padding-top: 8px !important;
+}
+
+.account-menu-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+
+.account-menu-quick-actions.is-demo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-menu-quick-action {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.account-menu-quick-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-menu-quick-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.account-menu-quick-action.is-primary .account-menu-quick-icon {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: #141d22;
+}
+
+.account-menu-quick-action:not(:disabled):hover .account-menu-quick-icon {
+  border-color: var(--text-muted);
+}
+
+.deposit-maintenance-dialog .MuiDialog-paper {
+  border-radius: 12px !important;
+  max-width: 420px !important;
+}
+
+.deposit-maintenance-dialog .MuiDialogTitle-root {
+  font-size: 20px !important;
+  font-weight: 600 !important;
+  padding-bottom: 8px !important;
+}
+
+.deposit-maintenance-dialog .MuiDialogContent-root {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.deposit-maintenance-dialog .maintenance-window {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.deposit-maintenance-submit {
+  background: var(--yellow) !important;
+  color: #141d22 !important;
+  box-shadow: none !important;
+  text-transform: none !important;
+  min-height: 48px !important;
 }
 
 .set-balance-submit {
@@ -1307,6 +1494,7 @@ a {
   color: var(--link);
   font-size: 14px;
   padding: 0;
+  text-decoration: none;
 }
 
 .open-account-section {
@@ -2841,6 +3029,66 @@ tbody tr:last-child td {
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.orders-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.orders-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.orders-history-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--surface);
+}
+
+.orders-history-status-toggle button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 8px 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.orders-history-status-toggle button.is-active {
+  background: #eceae6;
+  font-weight: 500;
+}
+
+[data-theme="dark"] .orders-history-status-toggle button.is-active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.orders-history-download {
+  flex-shrink: 0;
+  height: 40px !important;
+  text-transform: none !important;
+}
+
+.orders-history-filters .date-range-trigger {
+  min-width: 180px !important;
 }
 
 .transaction-history-date-filter {
@@ -4802,6 +5050,15 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
+  .orders-history-toolbar {
+    align-items: stretch;
+  }
+
+  .orders-history-filters {
+    flex-direction: row;
+    align-items: center;
+  }
+
   .kyc-banner {
     grid-template-columns: 1fr;
   }
@@ -5254,6 +5511,16 @@ tbody tr:last-child td {
   font-size: 14px;
 }
 
+.profile-overview-list li.is-done strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.profile-overview-list li.is-done span:not(.profile-check-icon) {
+  color: var(--text);
+  text-decoration: none;
+}
+
 .profile-overview-list li.is-done {
   color: var(--text);
 }
@@ -5282,6 +5549,105 @@ tbody tr:last-child td {
   justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.verification-intro-modal {
+  max-width: 560px !important;
+  width: calc(100% - 32px);
+}
+
+.verification-intro-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.verification-intro-head h3 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.verification-intro-head p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.verification-intro-steps {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0;
+}
+
+.verification-intro-step {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 16px;
+  padding: 0 0 20px;
+}
+
+.verification-intro-step-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+}
+
+.verification-intro-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #b7bdc6;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.verification-intro-step.is-active .verification-intro-step-num {
+  background: var(--yellow);
+  color: #141d22;
+}
+
+.verification-intro-step-line {
+  flex: 1;
+  width: 2px;
+  min-height: 24px;
+  margin-top: 8px;
+  background: var(--line);
+}
+
+.verification-intro-step-body strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.verification-intro-features-label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.verification-intro-step-body ul {
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.verification-intro-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 .profile-verify-block {

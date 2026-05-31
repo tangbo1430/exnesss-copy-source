@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
+  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -93,9 +94,20 @@ function floatingPl(account: Account) {
   return Number((account.equity - account.balance).toFixed(2));
 }
 
-function PageShell({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
+function PageShell({
+  title,
+  actions,
+  children,
+  beforeHead,
+}: {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  beforeHead?: ReactNode;
+}) {
   return (
     <div className="page accounts-page">
+      {beforeHead}
       <div className="page-head">
         <Typography variant="h1">{title}</Typography>
         {actions}
@@ -151,6 +163,110 @@ function MetricsPanel({ account }: { account: Account }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function AccountMenuQuickActions({
+  account,
+  kycStatus,
+  onRequireKycForRealFund,
+  openDialog,
+  onTrade,
+  onDeposit,
+  onWithdraw,
+  onTransfer,
+  onAction,
+}: {
+  account: Account;
+  kycStatus: number;
+  onRequireKycForRealFund: () => void;
+  openDialog: DialogOpener;
+  onTrade: (accountId: string) => void;
+  onDeposit: (accountId: string) => void;
+  onWithdraw: (accountId: string) => void;
+  onTransfer: (accountId: string) => void;
+  onAction: (action: () => void) => void;
+}) {
+  const realFundBlocked = account.kind === "Real" && !kycAllowsRealFund(kycStatus);
+
+  function tryDeposit() {
+    if (realFundBlocked) {
+      onRequireKycForRealFund();
+      return;
+    }
+    onAction(() => onDeposit(account.id));
+  }
+
+  function tryWithdraw() {
+    if (realFundBlocked) {
+      onRequireKycForRealFund();
+      return;
+    }
+    onAction(() => onWithdraw(account.id));
+  }
+
+  if (account.kind === "Demo") {
+    return (
+      <div className="account-menu-quick-actions is-demo">
+        <button type="button" className="account-menu-quick-action is-primary" onClick={() => onAction(() => onTrade(account.id))}>
+          <span className="account-menu-quick-icon">
+            <CandlestickChart size={20} />
+          </span>
+          <span>Trade</span>
+        </button>
+        <button
+          type="button"
+          className="account-menu-quick-action"
+          onClick={() => onAction(() => openDialog({ name: "setBalance", accountId: account.id }))}
+        >
+          <span className="account-menu-quick-icon">
+            <ArrowDownCircle size={20} />
+          </span>
+          <span>Set balance</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="account-menu-quick-actions">
+      <button type="button" className="account-menu-quick-action is-primary" onClick={() => onAction(() => onTrade(account.id))}>
+        <span className="account-menu-quick-icon">
+          <CandlestickChart size={20} />
+        </span>
+        <span>Trade</span>
+      </button>
+      <button
+        type="button"
+        className="account-menu-quick-action"
+        disabled={realFundBlocked}
+        aria-disabled={realFundBlocked}
+        onClick={tryDeposit}
+      >
+        <span className="account-menu-quick-icon">
+          <ArrowDownCircle size={20} />
+        </span>
+        <span>Deposit</span>
+      </button>
+      <button
+        type="button"
+        className="account-menu-quick-action"
+        disabled={realFundBlocked}
+        aria-disabled={realFundBlocked}
+        onClick={tryWithdraw}
+      >
+        <span className="account-menu-quick-icon">
+          <ArrowUpCircle size={20} />
+        </span>
+        <span>Withdraw</span>
+      </button>
+      <button type="button" className="account-menu-quick-action" onClick={() => onAction(() => onTransfer(account.id))}>
+        <span className="account-menu-quick-icon">
+          <ArrowLeftRight size={20} />
+        </span>
+        <span>Transfer</span>
+      </button>
     </div>
   );
 }
@@ -555,28 +671,29 @@ export function AccountsPage({
           Open account
         </Button>
       }
+      beforeHead={
+        <div className="accounts-promo-row">
+          <button type="button" className="accounts-promo-card" onClick={() => openDialog({ name: "refer" })}>
+            <div>
+              <strong>Become a partner</strong>
+              <span>Invite friends and earn up to 40% profit share</span>
+            </div>
+            <Users size={40} strokeWidth={1.2} className="accounts-promo-icon" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="accounts-promo-card"
+            onClick={() => toast("Exness mobile app download link copied.")}
+          >
+            <div>
+              <strong>Download Exness mobile app</strong>
+              <span>Trade anytime, anywhere</span>
+            </div>
+            <Smartphone size={40} strokeWidth={1.2} className="accounts-promo-icon" aria-hidden />
+          </button>
+        </div>
+      }
     >
-      <div className="accounts-promo-row">
-        <button type="button" className="accounts-promo-card" onClick={() => openDialog({ name: "refer" })}>
-          <div>
-            <strong>Become a partner</strong>
-            <span>Invite friends and earn up to 40% profit share</span>
-          </div>
-          <Users size={40} strokeWidth={1.2} className="accounts-promo-icon" aria-hidden />
-        </button>
-        <button
-          type="button"
-          className="accounts-promo-card"
-          onClick={() => toast("Exness mobile app download link copied.")}
-        >
-          <div>
-            <strong>Download Exness mobile app</strong>
-            <span>Trade anytime, anywhere</span>
-          </div>
-          <Smartphone size={40} strokeWidth={1.2} className="accounts-promo-icon" aria-hidden />
-        </button>
-      </div>
-
       <div className="accounts-toolbar">
         <ToggleButtonGroup
           exclusive
@@ -683,6 +800,22 @@ export function AccountsPage({
         slotProps={{ paper: { className: "account-actions-menu" } }}
       >
         <div ref={menuRef}>
+          {menuAccount ? (
+            <>
+              <AccountMenuQuickActions
+                account={menuAccount}
+                kycStatus={kycStatus}
+                onRequireKycForRealFund={onRequireKycForRealFund}
+                openDialog={openDialog}
+                onTrade={onTrade}
+                onDeposit={onDeposit}
+                onWithdraw={onWithdraw}
+                onTransfer={onTransfer}
+                onAction={runMenu}
+              />
+              <Divider />
+            </>
+          ) : null}
           <MenuItem onClick={() => runMenu(() => menuAccount && openDialog({ name: "leverage", accountId: menuAccount.id }))}>
             Adjust leverage
           </MenuItem>

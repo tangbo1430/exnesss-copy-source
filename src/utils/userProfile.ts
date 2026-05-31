@@ -13,9 +13,13 @@ export async function refreshUserProfile(
     profile: {
       email: profile.email,
       maskedEmail: profile.maskedEmail,
+      emailVerified: Boolean(profile.emailVerified),
       phone: profile.phone ?? "",
       maskedPhone: profile.maskedPhone ?? "",
       phoneVerified: Boolean(profile.phoneVerified),
+      profileStep1Done: Boolean(profile.profileStep1Done),
+      profileFirstName: profile.profileFirstName ?? "",
+      profileLastName: profile.profileLastName ?? "",
       kycStatus,
       kycRejectReason: kyc.rejectReason ?? "",
     },

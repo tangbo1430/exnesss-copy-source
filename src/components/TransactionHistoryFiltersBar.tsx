@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Calendar } from "lucide-react";
 import { usePA } from "../state/paStore";
 import { translateText } from "../i18n";
@@ -36,6 +36,7 @@ export function TransactionHistoryFiltersBar({
   const { state } = usePA();
   const t = (text: string) => translateText(text, state.settings.language);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const dateFilterRef = useRef<HTMLDivElement>(null);
 
   const dateLabel = useMemo(() => {
     if (value.datePreset === "custom") {
@@ -97,7 +98,7 @@ export function TransactionHistoryFiltersBar({
 
   return (
     <div className="transaction-history-filters" data-no-i18n>
-      <div className="transaction-history-date-filter">
+      <div className="transaction-history-date-filter" ref={dateFilterRef}>
         <PillFilter
           label={dateLabel}
           value={value.datePreset}
@@ -107,17 +108,18 @@ export function TransactionHistoryFiltersBar({
           startIcon={<Calendar size={16} />}
           onOptionClick={handleDateOptionClick}
         />
-        {showCustomPicker && value.datePreset === "custom" && (
+        {value.datePreset === "custom" ? (
           <DateRangePicker
+            hideTrigger
+            open={showCustomPicker}
+            anchorEl={dateFilterRef.current}
+            onClose={() => setShowCustomPicker(false)}
+            anchorOrigin={{ vertical: "top", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "left" }}
             value={value.customRange}
-            onChange={(customRange) => {
-              onChange({ ...value, datePreset: "custom", customRange });
-              if (customRange.start) {
-                setShowCustomPicker(false);
-              }
-            }}
+            onChange={(customRange) => onChange({ ...value, datePreset: "custom", customRange })}
           />
-        )}
+        ) : null}
       </div>
 
       <PillFilter

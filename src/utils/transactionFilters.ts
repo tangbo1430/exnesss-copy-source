@@ -72,10 +72,10 @@ export function filterTransactions(transactions: Transaction[], filters: Transac
 }
 
 export const transactionDatePresetLabels: Record<TransactionDatePreset, string> = {
-  "3d": "Last 3 days",
-  "7d": "Last 7 days",
-  "30d": "Last 30 days",
-  "3m": "Last 3 months",
+  "3d": "Past 3 days",
+  "7d": "Past 7 days",
+  "30d": "Past 30 days",
+  "3m": "Past 3 months",
   custom: "Custom time",
 };
 
