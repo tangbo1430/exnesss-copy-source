@@ -517,7 +517,7 @@ function LoginPage({
   const [submitting, setSubmitting] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const [codeCooldown, setCodeCooldown] = useState(0);
-  const [partnerCodeOpen, setPartnerCodeOpen] = useState(false);
+  const [partnerCodeOpen, setPartnerCodeOpen] = useState(true);
   const [partnerCode, setPartnerCode] = useState("");
 
   const registerPasswordRules = useMemo(
@@ -674,9 +674,9 @@ function LoginPage({
                 <TextField value={emailCode} onChange={(event) => setEmailCode(event.target.value)} fullWidth hiddenLabel />
                 <Button
                   variant="outlined"
+                  className="login-inline-button"
                   disabled={sendingCode || codeCooldown > 0}
                   onClick={() => void sendRegisterCode()}
-                  sx={{ flexShrink: 0, whiteSpace: "nowrap", px: 2, height: 56 }}
                 >
                   {codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
                 </Button>
@@ -740,33 +740,25 @@ function LoginPage({
           {tab === "register" && <FormControlLabel control={<Checkbox defaultChecked />} label="我确认自己不是美国居民，并同意法律文件。" />}
           <LoginField label="验证码">
             <div className="login-captcha-row">
-              <Box
-                sx={{
-                  width: 120,
-                  height: 56,
-                  borderRadius: 1,
-                  border: "1px solid #ddd",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  overflow: "hidden",
-                  bgcolor: "#fafafa",
-                  flexShrink: 0,
-                }}
-              >
+              <div className="login-captcha-box">
                 {captchaLoading ? (
                   <Typography variant="caption" color="text.secondary">
                     加载中...
                   </Typography>
                 ) : captchaImage ? (
-                  <Box component="img" src={captchaImage} alt="验证码" sx={{ height: 56, width: "100%", objectFit: "contain" }} />
+                  <img src={captchaImage} alt="验证码" />
                 ) : (
                   <Typography variant="caption" color="error">
                     {captchaError ? "加载失败" : "无图片"}
                   </Typography>
                 )}
-              </Box>
-              <IconButton aria-label="Refresh captcha" onClick={() => void loadCaptcha()} disabled={captchaLoading} sx={{ height: 56 }}>
+              </div>
+              <IconButton
+                className="login-captcha-refresh"
+                aria-label="Refresh captcha"
+                onClick={() => void loadCaptcha()}
+                disabled={captchaLoading}
+              >
                 <History size={18} />
               </IconButton>
               <TextField value={captchaCode} onChange={(event) => setCaptchaCode(event.target.value)} fullWidth hiddenLabel />
@@ -1211,7 +1203,7 @@ function Header({
             ["Trading calculator", ""],
             ["Partner Area", ""],
             ["Social Trading", "/pa/socialtrading"],
-            ["Exness website", ""],
+            ["Exness website", "https://my.exnesss.link.daboluo.pro"],
             ["Help Center", "/pa/support_hub/help_center"],
           ].map(([label, route]) => (
             <button
@@ -1219,8 +1211,13 @@ function Header({
               key={label}
               onClick={() => {
                 close();
-                if (route) navigate(route as Route);
-                else openDialog({ name: "external", title: label, body: `${label} is represented as an Exness app shortcut.` });
+                if (!route) {
+                  openDialog({ name: "external", title: label, body: `${label} is represented as an Exness app shortcut.` });
+                } else if (route.startsWith("http://") || route.startsWith("https://")) {
+                  window.open(route, "_blank", "noopener,noreferrer");
+                } else {
+                  navigate(route as Route);
+                }
               }}
             >
               <AppWindow size={18} />
