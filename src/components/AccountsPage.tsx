@@ -31,6 +31,11 @@ import { usePA } from "../state/paStore";
 import { AccountSortSelect, sortAccounts, type AccountSort } from "./AccountSortSelect";
 import { kycAllowsRealFund } from "../config/simulation";
 import type { Account, AccountKind, Route } from "../types";
+import {
+  accountDisplayName,
+  accountTypeLabel,
+  formatAccountCardIdLine,
+} from "../utils/accountLabel";
 
 type Toast = (message: string) => void;
 
@@ -83,11 +88,6 @@ function formatArchivedAt(value: string) {
   const hour = String(date.getHours()).padStart(2, "0");
   const minute = String(date.getMinutes()).padStart(2, "0");
   return `${day} ${month}月 ${year} ${hour}:${minute} (UTC+8)`;
-}
-
-function accountTypeLabel(account: Account) {
-  if (account.type === "Standard") return "Standard account";
-  return account.type;
 }
 
 function floatingPl(account: Account) {
@@ -397,7 +397,7 @@ function AccountCardList({
           <MetaTag>{account.platform}</MetaTag>
           <MetaTag>{account.type}</MetaTag>
           <span className="account-card-ex-id">
-            # {account.login} {accountTypeLabel(account)}
+            {formatAccountCardIdLine(account)}
           </span>
         </div>
         <button type="button" className="account-expand-btn" aria-label="Toggle account details" onClick={onToggle}>
@@ -474,7 +474,7 @@ function AccountCardGrid({
       <div className="account-card-grid-head">
         <div>
           <AccountKindTag kind={account.kind} />
-          <strong>{accountTypeLabel(account)}</strong>
+          <strong>{accountDisplayName(account)}</strong>
         </div>
         <button type="button" className="account-action is-icon" aria-label="Account actions" onClick={onMore}>
           <MoreVertical size={18} />
@@ -523,7 +523,7 @@ function ArchivedAccountCard({
         <div className="account-card-grid-head">
           <div>
             <AccountKindTag kind={account.kind} />
-            <strong>{account.type}</strong>
+            <strong>{accountDisplayName(account)}</strong>
           </div>
         </div>
         <div className="account-card-grid-rows">
@@ -559,7 +559,7 @@ function ArchivedAccountCard({
           <MetaTag>{account.platform}</MetaTag>
           <MetaTag>{account.type}</MetaTag>
           <span className="account-card-ex-id">
-            # {account.login} {account.type}
+            {formatAccountCardIdLine(account)}
           </span>
         </div>
       </div>

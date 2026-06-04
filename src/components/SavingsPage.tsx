@@ -16,8 +16,10 @@ import type { Route } from "../types";
 
 type BenefitModal = "negative-balance" | "swap-free" | null;
 
-function formatSavingsAccountLabel(type: string, login: string) {
-  return `${type} #${login}`;
+function formatSavingsAccountLabel(account: { type: string; login: string; nickname?: string; platform?: string }) {
+  const name = account.nickname?.trim();
+  if (name) return `${name} #${account.login}`;
+  return `${account.type} #${account.login}`;
 }
 
 function BenefitDialog({
@@ -114,7 +116,7 @@ export function SavingsPage({ navigate }: { navigate: (route: Route) => void }) 
           >
             {activeAccounts.map((account) => (
               <MenuItem key={account.id} value={account.id}>
-                {formatSavingsAccountLabel(account.type, account.login)}
+                {formatSavingsAccountLabel(account)}
               </MenuItem>
             ))}
           </Select>

@@ -82,6 +82,37 @@ export function logout() {
   return apiRequest<null>("/user/logout", { method: "POST" });
 }
 
+/** 用 refresh_token Cookie 换新 access token，并同步 sessionStorage */
+export function refreshToken() {
+  return apiRequest<AuthTokenData>("/user/refresh-token", {
+    method: "POST",
+    body: JSON.stringify({}),
+  }).then((data) => {
+    setTokens(data.accessToken, data.refreshToken);
+    return data;
+  });
+}
+
+/**
+ * 启动恢复登录态：优先 profile（Cookie 或 sessionStorage），失败则用 refresh Cookie。
+ * 跨子域从终端跳回 PA 时 sessionStorage 为空，但 refresh Cookie 仍可能有效。
+ */
+export async function restoreSession(): Promise<boolean> {
+  try {
+    await fetchProfile();
+    return true;
+  } catch {
+    /* access 缺失或过期 */
+  }
+  try {
+    await refreshToken();
+    await fetchProfile();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function fetchProfile() {
   return apiRequest<ProfileData>("/user/profile");
 }

@@ -6,6 +6,7 @@ import { DateRangePicker } from "./DateRangePicker";
 import { PillFilter } from "./PillFilter";
 import { formatPickerDateNumeric } from "../utils/dateRange";
 import type { Account } from "../types";
+import { formatAccountFilterLabel } from "../utils/accountLabel";
 import {
   transactionDatePresetLabels,
   transactionStatusFilterLabels,
@@ -80,7 +81,7 @@ export function TransactionHistoryFiltersBar({
         .filter((account) => account.status === "Active")
         .map((account) => ({
           value: account.id,
-          label: account.nickname ? `${account.nickname} #${account.login}` : `#${account.login}`,
+          label: formatAccountFilterLabel(account),
         })),
     ],
     [accounts, t],

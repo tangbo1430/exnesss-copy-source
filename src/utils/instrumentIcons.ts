@@ -56,7 +56,7 @@ export function getInstrumentIcons(symbol: string) {
       ? { kind: "crypto" as const, src: baseCrypto, label: base }
       : baseCountry
         ? { kind: "flag" as const, src: flagIconUrl(baseCountry), label: base }
-        : base === "XAU"
+        : base === "XAU" || base === "GOLD"
           ? { kind: "metal" as const, label: "Gold" }
           : base === "XAG"
             ? { kind: "metal" as const, label: "Silver" }

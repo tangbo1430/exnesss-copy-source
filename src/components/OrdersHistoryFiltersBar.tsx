@@ -3,6 +3,7 @@ import { usePA } from "../state/paStore";
 import { translateText } from "../i18n";
 import { DateRangePicker } from "./DateRangePicker";
 import { PillFilter } from "./PillFilter";
+import { formatAccountFilterLabel } from "../utils/accountLabel";
 import type { DateRangeValue } from "../utils/dateRange";
 import type { Account, OrderStatus } from "../types";
 
@@ -41,7 +42,7 @@ export function OrdersHistoryFiltersBar({
       { value: "all", label: t("All accounts") },
       ...accounts.map((account) => ({
         value: account.id,
-        label: account.nickname ? `${account.nickname} #${account.login}` : `#${account.login}`,
+        label: formatAccountFilterLabel(account),
       })),
     ],
     [accounts, t],

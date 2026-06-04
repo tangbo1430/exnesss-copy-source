@@ -2,6 +2,13 @@ import type { Route } from "../types";
 
 export const DEFAULT_PA_ROUTE: Route = "/pa/trading/accounts";
 
+/** Exness 网页交易终端（独立子域部署） */
+export const exnessTerminalUrl = "https://my.exnesss.link.daboluo.pro";
+
+export function openExnessTerminal() {
+  window.location.assign(exnessTerminalUrl);
+}
+
 const PA_ROUTES: readonly Route[] = [
   "/pa/trading/accounts",
   "/pa/trading/open-account",

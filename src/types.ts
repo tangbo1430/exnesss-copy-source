@@ -200,6 +200,7 @@ export interface PAState {
   paymentMethods: PaymentMethod[];
   transactions: Transaction[];
   orders: Order[];
+  ordersLoaded: boolean;
   tickets: Ticket[];
   notifications: NotificationItem[];
   insights: Insight[];

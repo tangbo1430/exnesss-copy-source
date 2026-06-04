@@ -11,6 +11,16 @@
     />
     <script>
       (function () {
+        // 生产域名须走 HTTPS，否则 Secure Cookie 无法写入，跨子域 SSO 会失败
+        if (
+          location.protocol === "http:" &&
+          (location.hostname === "exness.daboluo.pro" || location.hostname.endsWith(".exness.daboluo.pro"))
+        ) {
+          location.replace(
+            "https://" + location.host + location.pathname + location.search + location.hash
+          );
+          return;
+        }
         var mode = localStorage.getItem("exness-theme-mode") || "system";
         var dark =
           mode === "dark" ||

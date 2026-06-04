@@ -757,6 +757,19 @@ const localeToLanguageMap = Object.fromEntries(
 ) as Record<string, Language>;
 
 const languageCookieMaxAgeSec = 365 * 24 * 60 * 60;
+const languageCookieDomain = ".daboluo.pro";
+
+function resolveLanguageCookieDomain(): string {
+  if (typeof window === "undefined") return "";
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || /^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+    return "";
+  }
+  if (host === "daboluo.pro" || host.endsWith(".daboluo.pro")) {
+    return languageCookieDomain;
+  }
+  return "";
+}
 
 export function coerceLanguage(language: string): Language {
   return languageOptions.includes(language as Language) ? (language as Language) : "English";
@@ -790,7 +803,9 @@ function readLanguageCookie(): string {
 function writeLanguageCookie(language: Language) {
   if (typeof document === "undefined") return;
   const locale = languageToLocale(language);
-  document.cookie = `${languageCookieKey}=${encodeURIComponent(locale)}; path=/; max-age=${languageCookieMaxAgeSec}; samesite=lax`;
+  const domain = resolveLanguageCookieDomain();
+  const domainPart = domain ? `; domain=${domain}` : "";
+  document.cookie = `${languageCookieKey}=${encodeURIComponent(locale)}; path=/; max-age=${languageCookieMaxAgeSec}; samesite=lax${domainPart}`;
 }
 
 export function readStoredLanguage(): Language {

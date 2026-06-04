@@ -3,7 +3,6 @@ import type {
   Benefit,
   Insight,
   NotificationItem,
-  Order,
   PAState,
   PaymentMethod,
   Ticket,
@@ -208,46 +207,6 @@ export const transactions: Transaction[] = [
   },
 ];
 
-export const orders: Order[] = [
-  {
-    id: "ord-audcad-1",
-    accountId: "acc-real-802771334",
-    symbol: "AUD/CAD",
-    side: "Buy",
-    volume: 0.06,
-    openPrice: 0.99154,
-    closePrice: 0.98083,
-    pnl: -46.68,
-    status: "Closed",
-    openedAt: "2026-05-08T15:14:53.000Z",
-    closedAt: "2026-05-21T11:56:55.000Z",
-  },
-  {
-    id: "ord-btcusd-1",
-    accountId: "acc-real-802771334",
-    symbol: "BTC/USD",
-    side: "Buy",
-    volume: 0.06,
-    openPrice: 79889.71,
-    closePrice: 77136.96,
-    pnl: -165.16,
-    status: "Closed",
-    openedAt: "2026-05-08T15:15:08.000Z",
-    closedAt: "2026-05-21T11:56:52.000Z",
-  },
-  {
-    id: "ord-xauusd-open",
-    accountId: "acc-demo-913044127",
-    symbol: "XAU/USD",
-    side: "Sell",
-    volume: 0.12,
-    openPrice: 2348.24,
-    pnl: 38.7,
-    status: "Open",
-    openedAt: "2026-05-07T12:05:00.000Z",
-  },
-];
-
 export const tickets: Ticket[] = [
   {
     id: "TK-2041",
@@ -298,7 +257,7 @@ export const insights: Insight[] = [
     summary: "Momentum remains positive while buyers defend the latest support zone.",
     body: "Analysts expect a test of the 2375 resistance if the price keeps closing above 2328. A break below that level would neutralize the short-term bias.",
     tags: ["Commodities", "Intraday"],
-    symbol: "XAUUSD",
+    symbol: "GOLD",
     sentiment: "Bullish",
     publishedAt: "2026-05-07T07:20:00.000Z",
   },
@@ -397,7 +356,8 @@ export const initialState: PAState = {
   accounts: [],
   paymentMethods: [],
   transactions: [],
-  orders,
+  orders: [],
+  ordersLoaded: false,
   tickets,
   notifications,
   insights,

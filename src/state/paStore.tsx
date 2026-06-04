@@ -3,6 +3,7 @@ import { initialState } from "../data/mockData";
 import { readStoredLanguage, writeStoredLanguage } from "../i18n";
 import type {
   Account,
+  Order,
   PAState,
   Ticket,
   Transaction,
@@ -11,12 +12,14 @@ import type {
   WalletItem,
 } from "../types";
 import { verification as verificationTemplate } from "../data/mockData";
+import { formatAccountReadyMessage } from "../utils/accountLabel";
 import { mapVerificationFromKyc } from "../utils/kycSync";
 
 type Action =
   | { type: "SET_USER_PROFILE"; profile: UserProfile }
   | { type: "SET_ACCOUNTS"; accounts: Account[] }
   | { type: "SET_TRANSACTIONS"; transactions: Transaction[] }
+  | { type: "SET_ORDERS"; orders: Order[]; loaded?: boolean }
   | { type: "ADD_ACCOUNT"; payload: Omit<Account, "id" | "login" | "createdAt" | "status"> }
   | { type: "RENAME_ACCOUNT"; accountId: string; nickname: string }
   | { type: "CHANGE_LEVERAGE"; accountId: string; leverage: string }
@@ -88,6 +91,12 @@ function reducer(state: PAState, action: Action): PAState {
       return { ...state, accounts: action.accounts };
     case "SET_TRANSACTIONS":
       return { ...state, transactions: action.transactions };
+    case "SET_ORDERS":
+      return {
+        ...state,
+        orders: action.orders,
+        ordersLoaded: action.loaded ?? true,
+      };
     case "ADD_ACCOUNT": {
       const login = nextLogin(state.accounts);
       const account: Account = {
@@ -104,7 +113,7 @@ function reducer(state: PAState, action: Action): PAState {
           {
             id: uid("nt"),
             title: "Trading account created",
-            body: `${account.platform} ${account.type} #${account.login} is ready.`,
+            body: formatAccountReadyMessage(account),
             type: "platform",
             read: false,
             createdAt: new Date().toISOString(),

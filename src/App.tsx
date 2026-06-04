@@ -106,6 +106,7 @@ import {
   filterTransactions,
   type TransactionHistoryFilters,
 } from "./utils/transactionFilters";
+import { syncOrderHistory } from "./utils/syncOrderHistory";
 import { AnalystViewsRoute } from "./components/AnalystViewsPage";
 import { MarketNewsPage } from "./components/MarketNewsPage";
 import { SavingsPage } from "./components/SavingsPage";
@@ -121,7 +122,8 @@ import {
   VerificationStepsIntroModal,
 } from "./components/VerificationStepsIntroModal";
 import { refreshUserProfile } from "./utils/userProfile";
-import { DEFAULT_PA_ROUTE, readPathname, resolvePaRoute, writeAppRoot, writePaPath } from "./utils/paRoutes";
+import { accountDisplayName, formatAccountFilterLabel, formatAccountLabelById, formatAccountOptionLabel } from "./utils/accountLabel";
+import { DEFAULT_PA_ROUTE, exnessTerminalUrl, openExnessTerminal, readPathname, resolvePaRoute, writeAppRoot, writePaPath } from "./utils/paRoutes";
 import { applyAppDocumentTitle, applyAuthDocumentTitle, applyLoadingDocumentTitle, type AuthTab } from "./utils/pageTitle";
 import type { DateRangeValue } from "./utils/dateRange";
 import { languageLocaleCodes, languageOptions, localizeTree, readStoredLanguage, translateText } from "./i18n";
@@ -131,6 +133,7 @@ import { canFundAccount, isDemoFundFlow, kycAllowsRealFund, pickDefaultFundAccou
 import * as authApi from "./api/auth";
 import * as fundApi from "./api/fund";
 import * as kycApi from "./api/kyc";
+import * as webtradingApi from "./api/webtrading";
 import {
   kycPaymentBlockedMessage,
   kycIdentityLocked,
@@ -260,7 +263,7 @@ const sidebarGroups: Array<{
   key: GroupKey;
   label: string;
   icon: LucideIcon;
-  children: Array<{ route: Route; label: string; external?: boolean }>;
+  children: Array<{ route: Route; label: string; external?: boolean; href?: string }>;
 }> = [
   {
     key: "trading",
@@ -270,7 +273,7 @@ const sidebarGroups: Array<{
       { route: "/pa/trading/accounts", label: "My accounts" },
       { route: "/pa/trading/orderSummary", label: "Performance" },
       { route: "/pa/trading/ordersHistory", label: "History of orders" },
-      { route: "/pa/trading/accounts", label: "Exness Terminal", external: true },
+      { route: "/pa/trading/accounts", label: "Exness Terminal", href: exnessTerminalUrl },
     ],
   },
   {
@@ -329,11 +332,6 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function getAccountName(accounts: Account[], accountId: string) {
-  const account = accounts.find((item) => item.id === accountId);
-  return account ? `${account.platform} ${account.type} #${account.login}` : "Unknown account";
-}
-
 function downloadCsv(filename: string, rows: object[]) {
   const data = rows.length ? rows : [{ empty: "" }];
   const headers = Object.keys(data[0] as Record<string, unknown>);
@@ -377,8 +375,8 @@ export default function App() {
     clearLegacyTokens();
     (async () => {
       try {
-        await authApi.fetchProfile();
-        if (!cancelled) {
+        const ok = await authApi.restoreSession();
+        if (!cancelled && ok) {
           setStage("app");
           writePaPath(resolvePaRoute(), true);
         }
@@ -862,9 +860,21 @@ function AppShell({
         if (cancelled) return;
         dispatch({ type: "SET_ACCOUNTS", accounts });
         dispatch({ type: "SET_TRANSACTIONS", transactions: transactions.list });
+        try {
+          const orders = await syncOrderHistory(accounts);
+          if (!cancelled) {
+            dispatch({ type: "SET_ORDERS", orders, loaded: true });
+          }
+        } catch (orderErr) {
+          if (!cancelled) {
+            dispatch({ type: "SET_ORDERS", orders: [], loaded: true });
+            toast(orderErr instanceof Error ? orderErr.message : "Failed to load order history.");
+          }
+        }
       } catch (err) {
         if (!cancelled) {
           dispatch({ type: "SET_ACCOUNTS", accounts: showcaseAccounts });
+          dispatch({ type: "SET_ORDERS", orders: [], loaded: true });
           toast(err instanceof Error ? err.message : "Failed to load account data.");
         }
       }
@@ -1099,7 +1109,7 @@ function Header({
             .map((account) => (
               <button className="mini-account" key={account.id} type="button" onClick={() => copyToClipboard(account.login, toast)}>
                 <span>
-                  {account.nickname} #{account.login}
+                  {formatAccountFilterLabel(account)}
                 </span>
                 <strong>{formatMoney(account.balance, account.currency)}</strong>
               </button>
@@ -1199,7 +1209,7 @@ function Header({
       <Menu anchorEl={anchor} open={menu === "apps"} onClose={close} slotProps={{ paper: { sx: { width: 380 } } }}>
         <Box className="app-grid">
           {[
-            ["Exness Terminal", "/pa/trading/accounts"],
+            ["Exness Terminal", exnessTerminalUrl],
             ["Trading calculator", ""],
             ["Partner Area", ""],
             ["Social Trading", "/pa/socialtrading"],
@@ -1214,7 +1224,11 @@ function Header({
                 if (!route) {
                   openDialog({ name: "external", title: label, body: `${label} is represented as an Exness app shortcut.` });
                 } else if (route.startsWith("http://") || route.startsWith("https://")) {
-                  window.open(route, "_blank", "noopener,noreferrer");
+                  if (route === exnessTerminalUrl) {
+                    openExnessTerminal();
+                  } else {
+                    window.open(route, "_blank", "noopener,noreferrer");
+                  }
                 } else {
                   navigate(route as Route);
                 }
@@ -1382,6 +1396,10 @@ function SideGroup({
 
   function handleChildClick(child: (typeof group.children)[number]) {
     closeFlyout();
+    if (child.href) {
+      window.location.assign(child.href);
+      return;
+    }
     if (child.external) {
       openDialog({
         name: "external",
@@ -1510,14 +1528,51 @@ function KycBanner({ navigate, openDialog }: { navigate: (route: Route) => void;
 }
 
 function OrdersPage({ toast }: { toast: Toast }) {
-  const { state } = usePA();
+  const { state, dispatch } = usePA();
   const [status, setStatus] = useState<OrderStatus | "All">("Closed");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ start: null, end: null });
   const [accountId, setAccountId] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (state.accounts.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setRefreshing(true);
+      try {
+        const orders = await syncOrderHistory(state.accounts);
+        if (!cancelled) {
+          dispatch({ type: "SET_ORDERS", orders, loaded: true });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast(err instanceof Error ? err.message : "Failed to load order history.");
+        }
+      } finally {
+        if (!cancelled) {
+          setRefreshing(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, state.accounts, toast]);
+
   const rows = filterByDateRange(
     state.orders.filter((order) => (status === "All" || order.status === status) && (accountId === "all" || order.accountId === accountId)),
     dateRange,
   );
+
+  if (!state.ordersLoaded) {
+    return (
+      <Page title="History of orders">
+        <Typography color="text.secondary">{translateText("Loading...", state.settings.language)}</Typography>
+      </Page>
+    );
+  }
 
   return (
     <Page title="History of orders">
@@ -1535,6 +1590,7 @@ function OrdersPage({ toast }: { toast: Toast }) {
           className="orders-history-download"
           variant="outlined"
           startIcon={<Download size={16} />}
+          disabled={refreshing || rows.length === 0}
           onClick={() => {
             downloadCsv("orders.csv", rows);
             toast("CSV download generated.");
@@ -1678,7 +1734,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
           downloadCsv("transactions.csv", rows.map((item) => ({
             Reference: item.reference,
             Type: item.type,
-            Account: getAccountName(state.accounts, item.accountId),
+            Account: formatAccountLabelById(state.accounts, item.accountId),
             Amount: formatMoney(item.amount, item.currency),
             Status: item.status,
             Created: formatDate(item.createdAt),
@@ -1692,7 +1748,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
         />
         <DataTable
           columns={["Reference", "Type", "Account", "Amount", "Status", "Created"]}
-          rows={rows.map((item) => [item.reference, item.type, getAccountName(state.accounts, item.accountId), formatMoney(item.amount, item.currency), item.status, formatDate(item.createdAt)])}
+          rows={rows.map((item) => [item.reference, item.type, formatAccountLabelById(state.accounts, item.accountId), formatMoney(item.amount, item.currency), item.status, formatDate(item.createdAt)])}
           empty="No transactions found."
         />
       </Page>
@@ -1729,7 +1785,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
                 .filter((account) => account.status === "Active" && account.kind === "Real")
                 .map((account) => (
                   <MenuItem key={account.id} value={account.id}>
-                    {getAccountName(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}
+                    {formatAccountLabelById(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}
                     {account.kind === "Demo" ? " · Demo" : ""}
                   </MenuItem>
                 ))}
@@ -2382,7 +2438,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
             <InputLabel>Trading account</InputLabel>
             <Select value={selectedAccount} label="Trading account" onChange={(event) => setSelectedAccount(event.target.value)}>
               {fundAccounts.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{getAccountName(state.accounts, item.id)} · {formatMoney(item.balance, item.currency)}</MenuItem>
+                <MenuItem key={item.id} value={item.id}>{formatAccountLabelById(state.accounts, item.id)} · {formatMoney(item.balance, item.currency)}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -2446,7 +2502,7 @@ function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow
         )}
         {activeStep === confirmStep && (
           <Paper className="confirm-box">
-            <Info label="Account" value={account ? getAccountName(state.accounts, account.id) : ""} />
+            <Info label="Account" value={account ? formatAccountLabelById(state.accounts, account.id) : ""} />
             <Info label="Method" value={method ? `${method.name} ${method.network}` : ""} />
             <Info label="Amount" value={formatMoney(roundFundAmount(amount), account?.currency ?? "USD")} />
             <Info label="Fee" value={method?.fee ?? "0%"} />
@@ -2517,13 +2573,13 @@ function TransferDialog({ accountId, close, toast }: { accountId?: string; close
         <FormControl fullWidth>
           <InputLabel>From account</InputLabel>
           <Select value={from} label="From account" onChange={(event) => setFrom(event.target.value)}>
-            {accounts.map((account) => <MenuItem key={account.id} value={account.id}>{getAccountName(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}</MenuItem>)}
+            {accounts.map((account) => <MenuItem key={account.id} value={account.id}>{formatAccountLabelById(state.accounts, account.id)} · {formatMoney(account.balance, account.currency)}</MenuItem>)}
           </Select>
         </FormControl>
         <FormControl fullWidth>
           <InputLabel>To account</InputLabel>
           <Select value={to} label="To account" onChange={(event) => setTo(event.target.value)}>
-            {accounts.filter((account) => account.id !== from).map((account) => <MenuItem key={account.id} value={account.id}>{getAccountName(state.accounts, account.id)}</MenuItem>)}
+            {accounts.filter((account) => account.id !== from).map((account) => <MenuItem key={account.id} value={account.id}>{formatAccountLabelById(state.accounts, account.id)}</MenuItem>)}
           </Select>
         </FormControl>
         <TextField
@@ -2798,7 +2854,7 @@ function SetBalanceDialog({ accountId, close, toast }: { accountId: string; clos
             Set balance for demo account
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Account: #{account.login}
+            Account: {formatAccountOptionLabel(account)}
           </Typography>
         </div>
         <IconButton aria-label="Close" onClick={close}>
@@ -2829,15 +2885,48 @@ function RenameDialog({ accountId, close, toast }: { accountId: string; close: (
   const { state, dispatch } = usePA();
   const account = state.accounts.find((item) => item.id === accountId);
   const [nickname, setNickname] = useState(account?.nickname ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const onSave = async () => {
+    const name = nickname.trim();
+    if (!name) {
+      toast("Account name is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await webtradingApi.patchAccount(accountId, { name });
+      const accounts = await fundApi.fetchAccounts();
+      dispatch({ type: "SET_ACCOUNTS", accounts });
+      toast("Account renamed.");
+      close();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Dialog open onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>Rename account</DialogTitle>
+      <DialogTitle>
+        <div>
+          Rename account
+          {account ? (
+            <Typography variant="body2" color="text.secondary" component="div">
+              {formatAccountOptionLabel(account)}
+            </Typography>
+          ) : null}
+        </div>
+      </DialogTitle>
       <DialogContent className="dialog-grid">
         <TextField label="Account name" value={nickname} onChange={(event) => setNickname(event.target.value)} />
       </DialogContent>
       <DialogActions>
-        <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" onClick={() => { dispatch({ type: "RENAME_ACCOUNT", accountId, nickname }); toast("Account renamed."); close(); }}>Save</Button>
+        <Button onClick={close} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void onSave()} disabled={saving}>
+          {saving ? "Saving..." : "Save"}
+        </Button>
       </DialogActions>
     </Dialog>
   );
@@ -2847,9 +2936,36 @@ function LeverageDialog({ accountId, close, toast }: { accountId: string; close:
   const { state, dispatch } = usePA();
   const account = state.accounts.find((item) => item.id === accountId);
   const [leverage, setLeverage] = useState(account?.leverage ?? "1:2000");
+  const [saving, setSaving] = useState(false);
+
+  const onSave = async () => {
+    setSaving(true);
+    try {
+      const ratio = webtradingApi.parseLeverageRatio(leverage);
+      await webtradingApi.patchAccount(accountId, { leverage: ratio });
+      const accounts = await fundApi.fetchAccounts();
+      dispatch({ type: "SET_ACCOUNTS", accounts });
+      toast("Leverage changed.");
+      close();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Dialog open onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>Change leverage</DialogTitle>
+      <DialogTitle>
+        <div>
+          Change leverage
+          {account ? (
+            <Typography variant="body2" color="text.secondary" component="div">
+              {formatAccountOptionLabel(account)}
+            </Typography>
+          ) : null}
+        </div>
+      </DialogTitle>
       <DialogContent className="dialog-grid">
         <FormControl fullWidth>
           <InputLabel>Leverage</InputLabel>
@@ -2862,8 +2978,10 @@ function LeverageDialog({ accountId, close, toast }: { accountId: string; close:
         </FormControl>
       </DialogContent>
       <DialogActions>
-        <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" onClick={() => { dispatch({ type: "CHANGE_LEVERAGE", accountId, leverage }); toast("Leverage changed."); close(); }}>Change</Button>
+        <Button onClick={close} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void onSave()} disabled={saving}>
+          {saving ? "Saving..." : "Change"}
+        </Button>
       </DialogActions>
     </Dialog>
   );
@@ -2877,6 +2995,7 @@ function AccountInfoDialog({ accountId, close, openDialog, toast }: { accountId:
     <Dialog open onClose={close} fullWidth maxWidth="sm">
       <DialogTitle>Account information</DialogTitle>
       <DialogContent className="dialog-grid">
+        <Info label="Account name" value={account.nickname?.trim() || accountDisplayName(account)} />
         <Info label="Login" value={account.login} onCopy={() => copyToClipboard(account.login, toast)} />
         <Info label="Server" value={account.server} onCopy={() => copyToClipboard(account.server, toast)} />
         <Info label="Platform" value={account.platform} />

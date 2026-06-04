@@ -2288,9 +2288,15 @@ a {
   min-width: 0;
 }
 
+.performance-chart-plot {
+  position: relative;
+  height: 260px;
+  overflow: hidden;
+}
+
 .performance-chart-grid {
   position: absolute;
-  inset: 0 0 28px;
+  inset: 0;
   display: grid;
   grid-template-rows: repeat(5, 1fr);
 }
@@ -2301,7 +2307,7 @@ a {
 
 .performance-chart-bands {
   position: absolute;
-  inset: 0 0 28px;
+  inset: 0;
   display: grid;
   grid-template-columns: repeat(13, minmax(0, 1fr));
 }
@@ -2310,14 +2316,72 @@ a {
   background: rgba(108, 133, 149, 0.06);
 }
 
+.performance-chart-bars {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  align-items: end;
+  pointer-events: none;
+}
+
+.performance-chart-column {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 100%;
+  min-height: 0;
+  padding: 0 6px 2px;
+  box-sizing: border-box;
+}
+
+.performance-chart-bar-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  max-width: 32px;
+  height: 100%;
+  min-height: 0;
+}
+
+.performance-chart-bar-stack span {
+  display: block;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.performance-chart-bar-stack span.is-profit {
+  border-radius: 3px 3px 0 0;
+  background: #0f766e;
+}
+
+.performance-chart-bar-stack span.is-loss {
+  background: #141d22;
+}
+
+.performance-chart-bar-stack span.is-profit:only-child {
+  border-radius: 3px 3px 0 0;
+}
+
+.performance-chart-bar-stack span.is-single {
+  background: #6c8595;
+}
+
 .performance-chart-x {
   display: grid;
   grid-template-columns: repeat(13, minmax(0, 1fr));
   gap: 0;
-  margin-top: 260px;
+  min-height: 28px;
+  margin-top: 8px;
+  padding-top: 4px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.2;
   text-align: center;
+  position: relative;
+  z-index: 3;
 }
 
 .performance-chart-legend {

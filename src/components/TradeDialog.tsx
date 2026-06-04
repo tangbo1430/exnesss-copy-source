@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Checkbox, Collapse, Dialog, FormControlLabel, IconButton, Typography } from "@mui/material";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { openExnessTerminal } from "../utils/paRoutes";
+import { formatAccountOptionLabel } from "../utils/accountLabel";
 import { usePA } from "../state/paStore";
 import type { Account, Mt5Terminal, Route } from "../types";
 
@@ -72,8 +74,12 @@ export function TradeDialog({ account, close, toast, navigate }: TradeDialogProp
       dispatch({ type: "SET_MT5_TERMINAL", terminal: option.id });
     }
     close();
-    if (option.id === "Exness Web Trading Terminal" || option.id === "MT5 Web Terminal") {
-      toast(`Opening ${option.title} for #${account.login}.`);
+    if (option.id === "Exness Web Trading Terminal") {
+      openExnessTerminal();
+      return;
+    }
+    if (option.id === "MT5 Web Terminal") {
+      toast(`Opening ${option.title} for ${formatAccountOptionLabel(account)}.`);
       return;
     }
     toast("MetaTrader 5 download started.");
