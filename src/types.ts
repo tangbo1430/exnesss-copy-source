@@ -24,7 +24,7 @@ export type GroupKey = "trading" | "payments" | "analytics" | "benefits" | "sett
 export type AccountKind = "Real" | "Demo";
 export type AccountPlatform = "MT5" | "MT4";
 export type TransactionType = "deposit" | "withdrawal" | "transfer";
-export type TransactionStatus = "Pending" | "Completed" | "Rejected";
+export type TransactionStatus = "Pending" | "Processing" | "Completed" | "Rejected";
 export type OrderStatus = "Open" | "Closed";
 export type VerificationStatus = "Pending" | "In progress" | "Completed";
 

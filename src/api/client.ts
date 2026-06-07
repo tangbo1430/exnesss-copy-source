@@ -64,6 +64,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       41003: "证件图片无效，请上传 JPG 或 PNG",
       41004: "身份证正反面不能为同一张图片",
       40011: "手机号码格式无效",
+      42009: "USDT 支付网关未配置，请联系客服",
+      // 42010 优盾详情见后端 msg 字段
+      42003: "订单不存在或状态已变更",
     };
     throw new Error(hints[json.code] ?? json.msg ?? `API error ${json.code}`);
   }

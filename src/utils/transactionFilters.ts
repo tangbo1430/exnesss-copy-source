@@ -95,7 +95,8 @@ export const transactionTypeFilterLabels: Record<TransactionTypeFilter, string> 
 
 export const transactionStatusFilterLabels: Record<TransactionStatusFilter, string> = {
   all: "All statuses",
-  Pending: "Processing",
+  Pending: "Pending",
+  Processing: "Processing",
   Completed: "Completed",
   Rejected: "Rejected",
 };

@@ -114,6 +114,7 @@ import { CryptoWalletPage } from "./components/CryptoWalletPage";
 import { TradingConditionsPage } from "./components/TradingConditionsPage";
 import { VpsPage } from "./components/VpsPage";
 import { PerformancePage } from "./components/PerformancePage";
+import { PaymentFlowDialog } from "./components/PaymentFlowDialog";
 import { LegalFooter } from "./components/LegalFooter";
 import { GoogleIcon } from "./components/GoogleIcon";
 import { ProfilePage, PROFILE_FLOW_KEY } from "./components/ProfilePage";
@@ -1676,9 +1677,7 @@ function PaymentsPage({ route, openDialog, toast, navigate }: { route: Route; op
   const flow = route.includes("withdrawal") ? "withdrawal" : "deposit";
 
   useEffect(() => {
-    if (route === "/pa/payments-and-wallet/deposit") {
-      setMaintenanceOpen(true);
-    }
+    setMaintenanceOpen(false);
   }, [route]);
 
   useEffect(() => {
@@ -2178,13 +2177,25 @@ function DialogHost({
   navigate: (route: Route) => void;
 }) {
   const { state } = usePA();
+  const language = state.settings.language;
+  const kycStatus = state.userProfile?.kycStatus ?? 0;
   if (!dialog) return null;
   if (dialog.name === "trade") {
     const account = state.accounts.find((item) => item.id === dialog.accountId);
     if (!account) return null;
     return <TradeDialog account={account} close={close} toast={toast} navigate={navigate} />;
   }
-  if (dialog.name === "payment") return <PaymentFlowDialog flow={dialog.flow} accountId={dialog.accountId} close={close} openDialog={openDialog} toast={toast} />;
+  if (dialog.name === "payment") {
+    return (
+      <PaymentFlowDialog
+        flow={dialog.flow}
+        accountId={dialog.accountId}
+        close={close}
+        toast={toast}
+        onKycPrompt={() => promptKycForPayments(kycStatus, openDialog, toast, language)}
+      />
+    );
+  }
   if (dialog.name === "transfer") return <TransferDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "ticket") return <TicketDialog close={close} toast={toast} />;
   if (dialog.name === "verificationIntro") {
@@ -2213,327 +2224,6 @@ function DialogHost({
   if (dialog.name === "setBalance") return <SetBalanceDialog accountId={dialog.accountId} close={close} toast={toast} />;
   if (dialog.name === "refer") return <ConfirmDialog title="Become a partner" body="Invite a friend and earn up to 40% of our revenue. The partner link can be copied in this preview." close={close} confirmLabel="Copy link" onConfirm={() => copyToClipboard("https://one.exness.link/a/mock-partner", toast)} />;
   return <ConfirmDialog title={dialog.title} body={dialog.body} close={close} confirmLabel="Got it" onConfirm={() => undefined} />;
-}
-
-function PaymentFlowDialog({ flow, accountId, close, openDialog, toast }: { flow: "deposit" | "withdrawal"; accountId?: string; close: () => void; openDialog: DialogOpener; toast: Toast }) {
-  const { state, dispatch } = usePA();
-  const language = state.settings.language;
-  const kycStatus = state.userProfile?.kycStatus ?? 0;
-  const fundAccounts = state.accounts.filter((account) => account.status === "Active" && account.kind === "Real");
-  const [activeStep, setActiveStep] = useState(0);
-  const [selectedAccount, setSelectedAccount] = useState(() => {
-    if (accountId && fundAccounts.some((item) => item.id === accountId)) {
-      return accountId;
-    }
-    return fundAccounts[0]?.id ?? "";
-  });
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [methodId, setMethodId] = useState("");
-  const [amountText, setAmountText] = useState(() => defaultAmountText(flow));
-  const [voucherImage, setVoucherImage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [pendingWithdraw, setPendingWithdraw] = useState(false);
-  const account = state.accounts.find((item) => item.id === selectedAccount);
-  const isDemo = isDemoFundFlow(account?.kind ?? "Real");
-  const steps = isDemo ? ["Account", "Method", "Amount", "Confirm"] : ["Account", "Method", "Amount", "Voucher", "Confirm"];
-  const voucherStep = 3;
-  const confirmStep = isDemo ? 3 : 4;
-  const realVoucherRequired = !isDemo && !voucherImage.trim();
-  const method = methods.find((item) => item.id === methodId);
-  const canProceed = account ? canFundAccount(account.kind, kycStatus) : false;
-  const availableBalance = account?.balance ?? 0;
-  const amount = parseFundAmount(amountText);
-  const amountError = validateFundAmount(flow, amount, availableBalance, method);
-  const amountBlocksContinue = activeStep >= 2 && (amount <= 0 || Boolean(amountError));
-
-  useEffect(() => {
-    if (accountId && fundAccounts.some((item) => item.id === accountId)) {
-      setSelectedAccount(accountId);
-    }
-  }, [accountId, fundAccounts]);
-
-  useEffect(() => {
-    setVoucherImage("");
-  }, [isDemo]);
-
-  useEffect(() => {
-    setAmountText(defaultAmountText(flow));
-  }, [selectedAccount, flow]);
-
-  useEffect(() => {
-    if (flow !== "withdrawal" || !canProceed || isDemo) {
-      setPendingWithdraw(false);
-      return;
-    }
-    let cancelled = false;
-    void fundApi.fetchTransactions(1, 50).then((resp) => {
-      if (cancelled) return;
-      const hasPending = resp.list.some(
-        (item) => item.type === "withdrawal" && item.status === "Pending" && item.accountId === selectedAccount,
-      );
-      setPendingWithdraw(hasPending);
-    }).catch(() => {
-      if (!cancelled) setPendingWithdraw(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [flow, canProceed, selectedAccount, isDemo]);
-
-  useEffect(() => {
-    if (activeStep > confirmStep) {
-      setActiveStep(confirmStep);
-    }
-  }, [activeStep, confirmStep]);
-
-  useEffect(() => {
-    if (!canProceed) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await fundApi.fetchPaymentMethods(flow);
-        if (cancelled) return;
-        setMethods(list);
-        setMethodId(list[0]?.id ?? "");
-      } catch (err) {
-        if (!cancelled) {
-          setMethods([]);
-          setMethodId("");
-          toast(err instanceof Error ? err.message : "Failed to load payment methods.");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [flow, canProceed, toast]);
-
-  function goNext() {
-    if (realVoucherRequired && activeStep === voucherStep) {
-      toast("Please upload a payment voucher before continuing.");
-      return;
-    }
-    if (activeStep === 2) {
-      const parsed = parseFundAmount(amountText);
-      const err = validateFundAmount(flow, parsed, availableBalance, method);
-      if (err) {
-        toast(err);
-        return;
-      }
-      setAmountText(formatFundAmountText(parsed));
-    }
-    setActiveStep(activeStep + 1);
-  }
-
-  async function finish() {
-    if (!canProceed) {
-      promptKycForPayments(kycStatus, openDialog, toast, language);
-      close();
-      return;
-    }
-    const submitAmount = parseFundAmount(amountText);
-    if (!selectedAccount || !methodId || submitAmount <= 0) return;
-    const err = validateFundAmount(flow, submitAmount, availableBalance, method);
-    if (err) {
-      toast(err);
-      return;
-    }
-    if (realVoucherRequired) {
-      toast("Payment voucher is required for Real account deposit and withdrawal.");
-      return;
-    }
-    if (flow === "withdrawal" && pendingWithdraw && !isDemo) {
-      toast("您有一笔 Real 出金正在审核中，请等待后台处理后再提交。");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const payload = {
-        accountId: selectedAccount,
-        methodId,
-        amount: roundFundAmount(submitAmount),
-        currency: account?.currency ?? "USD",
-        voucherImage: isDemo ? undefined : voucherImage,
-      };
-      const transaction =
-        flow === "deposit" ? await fundApi.createDeposit(payload) : await fundApi.createWithdraw(payload);
-      const txResp = await fundApi.fetchTransactions(1, 50);
-      dispatch({ type: "SET_TRANSACTIONS", transactions: txResp.list });
-      const accounts = await fundApi.fetchAccounts();
-      dispatch({ type: "SET_ACCOUNTS", accounts });
-      if (flow === "withdrawal") {
-        if (isDemo && transaction.status === "Completed") {
-          toast("Demo 出金已即时到账。");
-        } else if (transaction.status === "Pending") {
-          toast("出金已提交，等待后台审核。审核期间资金已冻结，请勿重复提交。");
-          setPendingWithdraw(true);
-        } else {
-          toast(`出金状态：${transaction.status}`);
-        }
-      } else if (transaction.status === "Completed") {
-        toast("入金已完成。");
-      } else {
-        toast("入金已提交，等待后台审核。");
-      }
-      close();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Payment request failed.";
-      if (msg.includes("already pending review") || msg.includes("42002")) {
-        if (isDemo) {
-          toast("Demo 出金被 Real 待审单拦截，通常是后端未更新。请确认请求 accountId 为 Demo 账户并重启 simu-stock-server。");
-        } else {
-          toast("您有一笔 Real 出金正在审核中，请等待后台处理。");
-          setPendingWithdraw(true);
-        }
-      } else {
-        toast(msg);
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (!canProceed) {
-    return (
-      <Dialog open onClose={close} fullWidth maxWidth="sm">
-        <DialogTitle>{flow === "deposit" ? "Deposit" : "Withdrawal"}</DialogTitle>
-        <DialogContent>
-          <KycPaymentBlock kycStatus={kycStatus} language={language} openDialog={openDialog} toast={toast} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={close}>Close</Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              promptKycForPayments(kycStatus, openDialog, toast, language);
-              close();
-            }}
-          >
-            {kycStatus === 1 ? "查看状态" : "Verify now"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    );
-  }
-
-  return (
-    <Dialog open onClose={close} fullWidth maxWidth="sm">
-      <DialogTitle>{flow === "deposit" ? "Deposit" : "Withdrawal"}</DialogTitle>
-      <DialogContent className="dialog-grid">
-        {flow === "withdrawal" && pendingWithdraw && !isDemo ? (
-          <Alert severity="warning">
-            您有一笔 Real 账户出金正在审核中，资金已冻结。请等待后台审核完成后再提交新的 Real 出金。
-          </Alert>
-        ) : null}
-        {!isDemo && flow === "withdrawal" ? (
-          <Alert severity="info">Real 账户出金需 KYC 通过且后台人工审核，提交后不会即时到账。</Alert>
-        ) : null}
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label) => (
-            <Step key={label}><StepLabel>{label}</StepLabel></Step>
-          ))}
-        </Stepper>
-        {activeStep === 0 && (
-          <FormControl fullWidth>
-            <InputLabel>Trading account</InputLabel>
-            <Select value={selectedAccount} label="Trading account" onChange={(event) => setSelectedAccount(event.target.value)}>
-              {fundAccounts.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{formatAccountLabelById(state.accounts, item.id)} · {formatMoney(item.balance, item.currency)}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-        {activeStep === 1 && (
-          <div className="method-grid compact">
-            {methods.map((item) => (
-              <button key={item.id} className={`method-card ${methodId === item.id ? "is-selected" : ""}`} type="button" onClick={() => setMethodId(item.id)}>
-                <CreditCard size={22} />
-                <strong>{item.name}</strong>
-                <span>{item.network}</span>
-                <small>{item.processingTime} · {item.fee}</small>
-              </button>
-            ))}
-          </div>
-        )}
-        {activeStep === 2 && (
-          <TextField
-            label="Amount"
-            type="text"
-            inputMode="decimal"
-            placeholder={flow === "deposit" ? FUND_AMOUNT_DEFAULT_DEPOSIT : "0.00"}
-            value={amountText}
-            onChange={(event) => setAmountText(normalizeAmountInput(event.target.value))}
-            onBlur={() => {
-              const parsed = parseFundAmount(amountText);
-              if (Number.isFinite(parsed) && parsed > 0) {
-                setAmountText(formatFundAmountText(parsed));
-              }
-            }}
-            error={Boolean(amountError)}
-            helperText={
-              amountError
-                ?? (flow === "withdrawal"
-                  ? `Available ${formatMoney(availableBalance, account?.currency ?? "USD")}${method ? ` · Min ${formatMoney(method.min)} · Max ${formatMoney(method.max)}` : ""}`
-                  : method ? `Min ${formatMoney(method.min)} · Max ${formatMoney(method.max)}` : "")
-            }
-          />
-        )}
-        {!isDemo && activeStep === voucherStep && (
-          <Stack spacing={1}>
-            <Typography color="text.secondary">
-              Upload payment voucher (jpeg/png) <Typography component="span" color="error">*</Typography>
-            </Typography>
-            {!voucherImage ? <Alert severity="warning">Voucher is required for Real account.</Alert> : null}
-            <Button variant="outlined" component="label">
-              Choose file
-              <input
-                hidden
-                type="file"
-                accept="image/png,image/jpeg"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  void compressImageFile(file).then(setVoucherImage).catch(() => toast("Failed to read voucher image."));
-                }}
-              />
-            </Button>
-            {voucherImage ? <Box component="img" src={voucherImage} alt="Voucher preview" sx={{ maxHeight: 160, borderRadius: 1 }} /> : null}
-          </Stack>
-        )}
-        {activeStep === confirmStep && (
-          <Paper className="confirm-box">
-            <Info label="Account" value={account ? formatAccountLabelById(state.accounts, account.id) : ""} />
-            <Info label="Method" value={method ? `${method.name} ${method.network}` : ""} />
-            <Info label="Amount" value={formatMoney(roundFundAmount(amount), account?.currency ?? "USD")} />
-            <Info label="Fee" value={method?.fee ?? "0%"} />
-            {!isDemo ? <Info label="Voucher" value={voucherImage ? "Attached" : "Missing"} /> : null}
-            <Typography variant="caption" color="text.secondary">
-              {isDemo
-                ? "Demo account: funds settle immediately, no voucher required."
-                : "Real account: submitted for admin review after confirmation."}
-            </Typography>
-          </Paper>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={activeStep === 0 ? close : () => setActiveStep(activeStep - 1)}>{activeStep === 0 ? "Cancel" : "Back"}</Button>
-        <Button
-          variant="contained"
-          disabled={
-            !selectedAccount
-            || !methodId
-            || amountBlocksContinue
-            || submitting
-            || (flow === "withdrawal" && pendingWithdraw && !isDemo)
-            || (realVoucherRequired && (activeStep === voucherStep || activeStep === confirmStep))
-          }
-          onClick={activeStep === confirmStep ? () => void finish() : goNext}
-        >
-          {activeStep === confirmStep ? (submitting ? "Submitting..." : "Confirm") : "Continue"}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
 }
 
 function TransferDialog({ accountId, close, toast }: { accountId?: string; close: () => void; toast: Toast }) {

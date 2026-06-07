@@ -217,6 +217,28 @@ const zh: Dictionary = {
   "This account was automatically archived.": "该账户已自动归档。",
   "Trade opened.": "交易已打开。",
   "Deposit completed.": "入金成功。",
+  "Payment address": "收款地址",
+  "Scan or copy the address below to pay": "扫码或复制下方地址完成付款",
+  "USDT · TRC20 only. Balance updates after on-chain confirmation.": "仅支持 USDT（TRC20），链上确认后余额自动到账。",
+  "How to pay": "如何付款",
+  "How to pay with USDT (TRC20)": "如何使用 USDT（TRC20）付款",
+  "This follows the usual exchange deposit flow: QR code and address show the same Tron receiving address from the payment gateway. Any compatible wallet can pay.":
+    "这与交易所/平台充币的常规流程一致：二维码与文字地址相同，均为支付网关分配的 Tron 收款地址，任意支持的钱包均可付款。",
+  Steps: "步骤",
+  "Please note": "请注意",
+  "Open a crypto wallet that supports USDT on the Tron network (TRC20), such as imToken, TronLink, TokenPocket, or Trust Wallet. You can also withdraw USDT-TRC20 from an exchange to this address.":
+    "准备一个支持 Tron 链 USDT（TRC20）的钱包，例如 imToken、TronLink、TokenPocket、Trust Wallet；也可从交易所提币 USDT-TRC20 到本地址。",
+  "Recommended: tap Copy address on this page, then in your wallet choose Send / Transfer → USDT → network Tron (TRC20) → paste the address and amount.":
+    "推荐：在本页点击「复制地址」，在钱包中选择 转账/发送 → USDT → 网络选 Tron（TRC20）→ 粘贴地址与金额。",
+  "Alternatively, open the scan function inside your wallet app (not WeChat or Alipay) and scan the QR code on this page. The QR contains the same deposit address.":
+    "或者：在钱包 App 内打开扫码（不要用微信/支付宝），扫描本页二维码；二维码内容与上方地址相同。",
+  "Double-check: currency USDT, network TRC20 only. Do not use ERC20, BEP20, or other networks.":
+    "务必核对：币种 USDT，网络仅 TRC20；勿用 ERC20、BEP20 等其他网络。",
+  "Submit the transfer and wait for on-chain confirmation. Your platform balance will update automatically based on the actual amount received.":
+    "确认并提交转账，等待链上确认；平台将按实际到账金额自动入账。",
+  "WeChat Pay and Alipay cannot send USDT.": "微信、支付宝无法支付 USDT。",
+  "The reference amount is for your convenience only. Credited balance follows the actual on-chain receipt (1 USDT = 1 USD).":
+    "参考金额仅供填写方便，实际入账以链上实收为准（1 USDT = 1 USD）。",
   "Withdrawal completed.": "出金成功。",
   "Transfer completed.": "转账成功。",
   "Trading password updated.": "交易密码已更新。",

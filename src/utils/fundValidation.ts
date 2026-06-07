@@ -1,6 +1,6 @@
 import type { PaymentMethod } from "../types";
 
-export const FUND_AMOUNT_DEFAULT_DEPOSIT = "50";
+export const FUND_AMOUNT_DEFAULT_DEPOSIT = "";
 
 /** 规范化金额输入：最多两位小数，去掉多余前导 0 */
 export function normalizeAmountInput(raw: string): string {
