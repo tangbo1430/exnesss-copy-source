@@ -556,6 +556,16 @@ function LoginPage({
   }, []);
 
   useEffect(() => {
+    // 某些浏览器会把上次的一次性验证码误填入首个文本框。
+    const timer = window.setTimeout(() => {
+      setEmail((value) => (/^\d{6}$/.test(value.trim()) ? "" : value));
+      setEmailCode("");
+      setCaptchaCode("");
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     applyAuthDocumentTitle(tab, state.settings.language);
   }, [tab, state.settings.language]);
 
@@ -565,16 +575,39 @@ function LoginPage({
     return () => window.clearTimeout(timer);
   }, [codeCooldown]);
 
-  async function sendRegisterCode() {
+  function clearTransientAuthFields() {
+    setPassword("");
+    setEmailCode("");
+    setCaptchaCode("");
+    setShowPassword(false);
+  }
+
+  function changeAuthTab(nextTab: AuthTab) {
+    if (nextTab === tab) return;
+    clearTransientAuthFields();
+    setCodeCooldown(0);
+    setTab(nextTab);
+    void loadCaptcha();
+  }
+
+  function changeEmail(nextEmail: string) {
+    if (nextEmail !== email) {
+      setEmailCode("");
+      setCodeCooldown(0);
+    }
+    setEmail(nextEmail);
+  }
+
+  async function sendAuthCode() {
     if (!email.trim()) {
       toast("Please enter your email first.");
       return;
     }
     setSendingCode(true);
     try {
-      await authApi.sendEmailCode(email.trim(), "register");
+      await authApi.sendEmailCode(email.trim(), tab === "login" ? "login" : "register");
       setCodeCooldown(60);
-      toast("Email code sent. Dev mode uses 123456.");
+      toast("Email verification code sent.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to send email code.");
     } finally {
@@ -590,6 +623,7 @@ function LoginPage({
         await authApi.login({
           email: email.trim(),
           password,
+          emailCode: emailCode.trim(),
           captchaId,
           captchaCode: captchaCode.trim(),
         });
@@ -605,6 +639,7 @@ function LoginPage({
         });
         toast("Account created successfully.");
       }
+      clearTransientAuthFields();
       setStage("app");
       const target = resolvePaRoute();
       writePaPath(target, true);
@@ -644,11 +679,11 @@ function LoginPage({
         </Menu>
       </header>
       <main className="login-main">
-        <form className="login-form" onSubmit={submit}>
+        <form className="login-form" onSubmit={submit} autoComplete="off">
           <Typography variant="h1" sx={{ textAlign: "center" }}>
             Exness 欢迎您
           </Typography>
-          <Tabs value={tab} onChange={(_, value: AuthTab) => setTab(value)} className="login-tabs-mui">
+          <Tabs value={tab} onChange={(_, value: AuthTab) => changeAuthTab(value)} className="login-tabs-mui">
             <Tab value="login" label="登录" />
             <Tab value="register" label="开立账户" />
           </Tabs>
@@ -659,31 +694,43 @@ function LoginPage({
           )}
           <LoginField label="电子邮箱地址">
             <TextField
+              key={`email-${tab}`}
+              name={tab === "login" ? "pa-login-email" : "pa-registration-email"}
               type="email"
-              autoComplete="email"
+              autoComplete={tab === "login" ? "username" : "email"}
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => changeEmail(event.target.value)}
               fullWidth
               hiddenLabel
             />
           </LoginField>
-          {tab === "register" && (
-            <LoginField label="邮箱验证码">
-              <div className="login-field-row">
-                <TextField value={emailCode} onChange={(event) => setEmailCode(event.target.value)} fullWidth hiddenLabel />
-                <Button
-                  variant="outlined"
-                  className="login-inline-button"
-                  disabled={sendingCode || codeCooldown > 0}
-                  onClick={() => void sendRegisterCode()}
-                >
-                  {codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
-                </Button>
-              </div>
-            </LoginField>
-          )}
+          <LoginField label="邮箱验证码">
+            <div className="login-field-row">
+              <TextField
+                key={`email-otp-${tab}`}
+                name={`pa-${tab}-email-otp`}
+                type="text"
+                value={emailCode}
+                onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                autoComplete="one-time-code"
+                slotProps={{ htmlInput: { inputMode: "numeric", maxLength: 6 } }}
+                fullWidth
+                hiddenLabel
+              />
+              <Button
+                variant="outlined"
+                className="login-inline-button"
+                disabled={sendingCode || codeCooldown > 0 || !email.trim()}
+                onClick={() => void sendAuthCode()}
+              >
+                {codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
+              </Button>
+            </div>
+          </LoginField>
           <LoginField label="密码">
             <TextField
+              key={`password-${tab}`}
+              name={tab === "login" ? "pa-login-password" : "pa-registration-password"}
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -760,7 +807,15 @@ function LoginPage({
               >
                 <History size={18} />
               </IconButton>
-              <TextField value={captchaCode} onChange={(event) => setCaptchaCode(event.target.value)} fullWidth hiddenLabel />
+              <TextField
+                key={`captcha-${tab}`}
+                name={`pa-${tab}-image-captcha`}
+                value={captchaCode}
+                onChange={(event) => setCaptchaCode(event.target.value)}
+                autoComplete="off"
+                fullWidth
+                hiddenLabel
+              />
             </div>
           </LoginField>
           {captchaError ? (
@@ -768,7 +823,7 @@ function LoginPage({
               {captchaError}（请确认后端 :8080 已启动，或点击刷新）
             </Typography>
           ) : null}
-          <Button type="submit" variant="contained" color="primary" fullWidth disabled={submitting || !captchaId}>
+          <Button type="submit" variant="contained" color="primary" fullWidth disabled={submitting || !captchaId || emailCode.length !== 6}>
             {tab === "login" ? "登录" : "继续"}
           </Button>
           <div className="divider">
@@ -2727,7 +2782,7 @@ function PasswordDialog({ close, toast, setStage }: { close: () => void; toast: 
     try {
       await authApi.sendEmailCode(email.trim(), "reset");
       setCodeCooldown(60);
-      toast("Email code sent. Dev mode uses 123456.");
+      toast("Email verification code sent.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to send email code.");
     } finally {
@@ -2763,9 +2818,11 @@ function PasswordDialog({ close, toast, setStage }: { close: () => void; toast: 
       <DialogTitle>Change password</DialogTitle>
       <DialogContent className="dialog-grid">
         <TextField
+          name="password-reset-email-otp"
           label="Email verification code"
           value={emailCode}
-          onChange={(event) => setEmailCode(event.target.value)}
+          onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+          autoComplete="one-time-code"
           slotProps={{
             input: {
               endAdornment: (
@@ -2780,9 +2837,14 @@ function PasswordDialog({ close, toast, setStage }: { close: () => void; toast: 
                 </InputAdornment>
               ),
             },
+            htmlInput: {
+              inputMode: "numeric",
+              maxLength: 6,
+            },
           }}
         />
         <TextField
+          name="new-password"
           label="New password"
           type={show ? "text" : "password"}
           value={newPassword}

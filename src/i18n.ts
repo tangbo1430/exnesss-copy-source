@@ -122,6 +122,7 @@ const zh: Dictionary = {
   "Local sample data": "本地模拟数据",
   "Closed orders": "已结订单",
   "History of orders": "订单历史",
+  Strategy: "策略",
   "Exness Terminal": "Exness 终端",
   "Payments & wallet": "支付和钱包",
   Deposit: "入金",

@@ -39,7 +39,7 @@ export function fetchCaptcha() {
   return apiRequest<CaptchaData>("/user/captcha");
 }
 
-export function sendEmailCode(email: string, scene: "register" | "reset") {
+export function sendEmailCode(email: string, scene: "register" | "login" | "reset") {
   return apiRequest<null>("/user/send-email-code", {
     method: "POST",
     body: JSON.stringify({ email, scene }),
@@ -49,6 +49,7 @@ export function sendEmailCode(email: string, scene: "register" | "reset") {
 export function login(body: {
   email: string;
   password: string;
+  emailCode: string;
   captchaId: string;
   captchaCode: string;
 }) {

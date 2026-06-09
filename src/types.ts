@@ -80,6 +80,7 @@ export interface Order {
   accountId: string;
   symbol: string;
   side: "Buy" | "Sell";
+  tradeType?: 0 | 1;
   volume: number;
   openPrice: number;
   closePrice?: number;

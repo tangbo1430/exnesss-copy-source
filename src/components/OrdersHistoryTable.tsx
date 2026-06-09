@@ -147,11 +147,14 @@ export function OrdersHistoryTable({ orders, empty }: { orders: Order[]; empty: 
                 <InstrumentCell symbol={order.symbol} />
               </td>
               <td>
-                <Chip
-                  size="small"
-                  label={order.side}
-                  className={`order-side-chip ${order.side === "Buy" ? "is-buy" : "is-sell"}`}
-                />
+                <span className="order-type-cell">
+                  <Chip
+                    size="small"
+                    label={order.side}
+                    className={`order-side-chip ${order.side === "Buy" ? "is-buy" : "is-sell"}`}
+                  />
+                  {order.tradeType === 1 && <span className="order-strategy-badge">{t("Strategy")}</span>}
+                </span>
               </td>
               <td>{formatOrderDateTime(order.openedAt, language)}</td>
               <td>{order.closedAt ? formatOrderDateTime(order.closedAt, language) : "—"}</td>
